@@ -1,0 +1,37 @@
+{
+  "schema_version": "1.0",
+  "client": { "id": "planetar-maritime", "name": "Maritime / Defence (edge)", "tier": "edge" },
+  "capabilities": [
+    "streaming-ingestion",
+    "kinetic-writes",
+    "identity-resolution",
+    "audit",
+    "search",
+    "media-sets",
+    "automation-flow"
+  ],
+  "roles": {
+    "stream":          { "engine": "file",        "config": { "path": "./.data/edge/stream.wal" } },
+    "canonical-store": { "engine": "sqlite",      "config": { "path": "./.data/edge/canonical.db" } },
+    "object-index":    { "engine": "sqlite",      "config": { "path": "./.data/edge/index.db" } },
+    "work-queue":      { "engine": "sqlite",      "config": { "path": "./.data/edge/work.db" } },
+    "audit-log":       { "engine": "append-wal",  "config": { "path": "./.data/edge/audit.log" } },
+    "registry":        { "engine": "git-fs",      "config": { "path": "./.data/edge/registry" } },
+    "blob-cas":        { "engine": "filesystem",  "config": { "root": "./.data/edge/blobs" } },
+    "lineage":         { "engine": "fs",          "config": { "path": "./.data/edge/lineage.jsonl" } },
+    "policy-identity": { "engine": "internal",    "config": { "clearances": ["UNCLASS", "OPS-RESTRICTED"] } }
+  },
+  "ingest": [
+    { "kind": "detector", "name": "planetar-ais" },
+    { "kind": "detector", "name": "planetar-sat" }
+  ],
+  "surfaces": [
+    { "kind": "shell", "name": "planetar-ui" },
+    { "kind": "object-api", "port": 4000 }
+  ],
+  "governance": {
+    "markings": [{ "id": "UNCLASS", "default": true }, { "id": "OPS-RESTRICTED" }],
+    "propagate": "lineage"
+  },
+  "deploy": { "target": "pm2", "host": "bb" }
+}

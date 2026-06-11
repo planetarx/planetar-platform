@@ -1,0 +1,17 @@
+{
+  "name": "planetar-platform",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Planetar Platform — one semantic spine, per-client datastore composition (Palantir+Salesforce parity). Design repo + runnable Phase 0/1 core.",
+  "engines": { "node": ">=22.18" },
+  "scripts": {
+    "boot": "node --experimental-sqlite boot/boot.ts",
+    "boot:edge": "node --experimental-sqlite boot/boot.ts boot/manifests/maritime-edge.json",
+    "boot:enterprise": "node --experimental-sqlite boot/boot.ts boot/manifests/generic-enterprise.json",
+    "conformance": "node --experimental-sqlite boot/conformance.ts",
+    "governance": "node --experimental-sqlite boot/governance.ts",
+    "automation": "node --experimental-sqlite boot/automation.ts",
+    "typecheck": "tsc --noEmit --strict --target ES2022 --lib ES2022,DOM --module ESNext --moduleResolution bundler --allowImportingTsExtensions --skipLibCheck --types node spine/*.ts adapters/**/*.ts boot/*.ts"
+  }
+}

@@ -1,0 +1,48 @@
+{
+  "schema_version": "1.0",
+  "client": { "id": "acme-enterprise", "name": "Generic Enterprise CRM+Ops (Acme)", "tier": "standard" },
+  "capabilities": [
+    "crm-objects",
+    "custom-fields",
+    "sales-pipeline",
+    "service-cases",
+    "omnichannel-routing",
+    "automation-flow",
+    "reporting-olap",
+    "segmentation-activation",
+    "identity-resolution",
+    "agents-rag",
+    "audit",
+    "portal",
+    "search"
+  ],
+  "roles": {
+    "canonical-store": { "engine": "sqlite",      "config": { "path": "./.data/ent/canonical.db" } },
+    "analytics-olap":  { "engine": "sqlite",      "config": { "path": "./.data/ent/canonical.db" } },
+    "object-index":    { "engine": "sqlite",      "config": { "path": "./.data/ent/index.db" } },
+    "work-queue":      { "engine": "sqlite",      "config": { "path": "./.data/ent/work.db" } },
+    "graph":           { "engine": "sqlite",      "config": { "path": "./.data/ent/graph.db" } },
+    "hot-cache":       { "engine": "in-process",  "config": {} },
+    "stream":          { "engine": "file",        "config": { "path": "./.data/ent/stream.wal" } },
+    "vector":          { "engine": "file",        "config": { "path": "./.data/ent/vectors.json" } },
+    "blob-cas":        { "engine": "filesystem",  "config": { "root": "./.data/ent/blobs" } },
+    "audit-log":       { "engine": "append-wal",  "config": { "path": "./.data/ent/audit.log" } },
+    "lineage":         { "engine": "fs",          "config": { "path": "./.data/ent/lineage.jsonl" } },
+    "registry":        { "engine": "git-fs",      "config": { "path": "./.data/ent/registry" } },
+    "policy-identity": { "engine": "internal",    "config": { "clearances": ["PUBLIC"] } }
+  },
+  "ingest": [
+    { "kind": "connector", "name": "salesforce-sync" },
+    { "kind": "connector", "name": "email-to-case" }
+  ],
+  "surfaces": [
+    { "kind": "shell", "name": "acme-console" },
+    { "kind": "object-api", "port": 4000 },
+    { "kind": "portal", "name": "customer-portal" }
+  ],
+  "governance": {
+    "markings": [{ "id": "PUBLIC", "default": true }, { "id": "INTERNAL" }],
+    "propagate": "lineage"
+  },
+  "deploy": { "target": "kubernetes" }
+}
