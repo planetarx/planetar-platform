@@ -6,7 +6,7 @@
 npm run boot:edge          # client 1: maritime/defence edge  → 9/9 checks
 npm run boot:enterprise    # client 2: generic enterprise CRM → 13/13 checks
 npm run conformance        # one suite, every adapter         → 14/14 conformant
-npm run governance         # Phase 3: governed ports          → 64/64 checks
+npm run governance         # Phase 3: governed ports          → 70/70 checks
 npm run automation         # Phase 4: declarative flows       → 8/8 checks
 ```
 

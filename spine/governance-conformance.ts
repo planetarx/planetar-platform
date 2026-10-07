@@ -131,6 +131,7 @@ export async function governanceSuite(platform: BoundPlatform): Promise<Check[]>
     if (!await none.getEntity('gov:Open', 'gov-0-open')) throw new Error('an unmarked row was withheld');
     const page = await none.listEntities(SUITE.type, { limit: 2 });
     if (page.items.length || page.cursor !== undefined) throw new Error(`expected an empty, final page; got ${page.items.length} item(s), cursor ${page.cursor}`);
+    if (!await refused(async () => platform.as({ id: 'gov-bad', roles: [], clearances: [SUITE.PUBLIC, null as unknown as string] }))) throw new Error('a principal with a non-string clearance was accepted');
     return 'ok';
   });
 
@@ -153,6 +154,12 @@ export async function governanceSuite(platform: BoundPlatform): Promise<Check[]>
         if ((await ix.search({ type: SUITE.type, text: 'acme' })).hits.length) throw new Error('found an entity by its protected owner');
         if (!await refused(() => ix.search({ type: SUITE.type, filter: [{ field: SUITE.owner, op: 'eq', value: 'Acme Shipping' }] }))) throw new Error('filter on a protected field was accepted');
       }
+      return 'ok';
+    });
+    await t('system handle: indexing raw entity fields never indexes a protected value', async () => {
+      await sys.role('object-index').index(SUITE.type, P1, { id: P1, type: SUITE.type, fields: { [SUITE.name]: 'MV Public', [SUITE.owner]: 'Acme Shipping' }, markings: [SUITE.PUBLIC] });
+      if ((await highIx.search({ type: SUITE.type, text: 'acme' })).hits.length) throw new Error('the protected value was indexed');
+      if (!(await highIx.search({ type: SUITE.type, text: 'public' })).hits.length) throw new Error('the public field was not indexed');
       return 'ok';
     });
   }
@@ -181,6 +188,14 @@ export async function governanceSuite(platform: BoundPlatform): Promise<Check[]>
         if (!await refused(() => p.role('graph').neighbors(P1, { maxHops: 1, filter }))) throw new Error('neighbors accepted the filter');
         if (!await refused(() => p.role('graph').shortestPath(P1, P2, { maxHops: 3, filter }))) throw new Error('shortestPath accepted the filter');
       }
+      return 'ok';
+    });
+    await t('graph: node fields are redacted for LOW', async () => {
+      await g.upsertNode({ id: P1, type: SUITE.type, fields: { [SUITE.name]: 'MV Public', [SUITE.owner]: 'Acme Shipping' }, markings: [SUITE.PUBLIC] });
+      const lo = (await low.role('graph').neighbors(P1, { maxHops: 1 })).nodes.find((n) => n.id === P1);
+      const hi = (await high.role('graph').neighbors(P1, { maxHops: 1 })).nodes.find((n) => n.id === P1);
+      if (lo?.fields?.[SUITE.owner] !== undefined) throw new Error('owner reached LOW through the graph');
+      if (hi?.fields?.[SUITE.owner] !== 'Acme Shipping') throw new Error('HIGH did not get the node fields back');
       return 'ok';
     });
     await t('graph: a node the canonical store does not know is hidden from everyone', async () => {
@@ -318,6 +333,17 @@ export async function governanceSuite(platform: BoundPlatform): Promise<Check[]>
     });
   }
 
+  if (platform.has('audit-log') && platform.has('graph')) {
+    await t('audit: an unknown projection row is not reported as withheld in the reader\'s own trail', async () => {
+      await sys.role('graph').upsertEdge({ from: P2, to: 'gov-not-an-entity', linkType: 'gov:met' });
+      await low.role('graph').neighbors(P2, { maxHops: 1, direction: 'out' });
+      const mine = (await auditOf(low, LOW.id)).filter((r) => r.resource === 'graph.neighbors' && (r.detail as { id?: string }).id === P2);
+      if (!mine.length) throw new Error('LOW\'s own read of a public node left no readable record');
+      if (mine.some((r) => ((r.detail as { withheld?: number }).withheld ?? 0) > 0)) throw new Error(`LOW\'s own trail reports withheld rows: ${JSON.stringify(mine[0].detail)}`);
+      return 'ok';
+    });
+  }
+
   // ---------------------------------------------------------------- hot-cache
   if (platform.has('hot-cache')) {
     await t('hot-cache: principals with different clearances never share an entry', async () => {
@@ -383,6 +409,15 @@ export async function governanceSuite(platform: BoundPlatform): Promise<Check[]>
       if (lo.length || !hi.length) throw new Error(`LOW=${lo.length} HIGH=${hi.length}`);
       return `HIGH sees ${hi.length} edge(s)`;
     });
+    if (platform.has('audit-log')) await t('propagation: its audit record is hidden from a reader who lacks a stamped entity\'s other markings', async () => {
+      await seed(vessel('gov-10-compartment', 'MV Compartment', [SUITE.PUBLIC, 'COMPARTMENT-X']));
+      await lineage.record({ upstream: 'src:gov-second', downstream: entityRef(SUITE.type, 'gov-10-compartment'), kind: 'observation-entity' });
+      await propagate(platform, 'src:gov-second', [SUITE.RESTRICTED], 'gov-admin-2');
+      if (await highStore.getEntity(SUITE.type, 'gov-10-compartment')) throw new Error('precondition: HIGH must not see the compartmented entity');
+      const seen = await auditOf(high, 'gov-admin-2');
+      if (seen.length) throw new Error(`HIGH read the propagation record naming it: ${JSON.stringify(seen[0].detail)}`);
+      return 'ok';
+    });
     if (platform.has('audit-log')) await t('propagation is audited once, by the actor who ordered it', async () => {
       const recs = (await auditOf(high, 'gov-admin')).filter((r) => r.resource === SUITE.source && r.action === 'admin');
       if (recs.length !== 1) throw new Error(`${recs.length} record(s)`);
@@ -444,6 +479,14 @@ export async function governanceSuite(platform: BoundPlatform): Promise<Check[]>
       if (platform.has('lineage') && !(await sys.role('lineage').upstreamOf(entityRef(SUITE.type, spec.id))).some((e) => e.upstream === 'gov-env-1')) throw new Error('no lineage edge from the cause');
       if ((await kinetic.createEntity(spec, HIGH, nowNs())).ok) throw new Error('create overwrote an existing entity');
       return 'ok';
+    });
+    await t('action gate: createEntity on an id the creator cannot see is a plain denial, not an existence report', async () => {
+      const onRestricted = await kinetic.createEntity({ type: SUITE.type, id: R, fields: {} }, LOW, nowNs());
+      const denied = await kinetic.createEntity({ type: SUITE.type, id: 'gov-11-fresh', fields: {}, markings: [SUITE.RESTRICTED] }, LOW, nowNs());
+      if (onRestricted.ok || denied.ok) throw new Error('a create succeeded');
+      if (onRestricted.reason !== denied.reason) throw new Error(`"${onRestricted.reason}" vs "${denied.reason}"`);
+      if ((await highStore.getEntity(SUITE.type, R))?.fields[SUITE.name] !== 'MV Secretname') throw new Error('the restricted entity was changed');
+      return onRestricted.reason ?? 'ok';
     });
     await t('action gate: concurrent actions and a propagation lose neither a write nor a marking', async () => {
       const ids = ['gov-c1', 'gov-c2', 'gov-c3', 'gov-c4'];

@@ -159,11 +159,15 @@ export class KineticExecutor {
    */
   async createEntity(spec: CreateSpec, principal: Principal, nowNs: bigint, cause?: Cause): Promise<ActionResult> {
     const markings = union(spec.markings, cause?.markings);
+    // one wording for every refusal that is not "you can see it and it exists", so a refusal on an
+    // id the creator cannot see says nothing about whether that id exists
+    const denied: ActionResult = { ok: false, reason: `create:${spec.type} denied` };
     const decision = await this.sys.role('policy-identity').authorize(principal, `create:${spec.type}`, { type: spec.type, id: spec.id, markings });
-    if (!decision.allow) return { ok: false, reason: decision.reason ?? 'denied' };
+    if (!decision.allow) return denied;
 
     const store = this.sys.role('canonical-store');
-    if (await store.getEntity(spec.type, spec.id)) return { ok: false, reason: `${spec.type}/${spec.id} already exists` };
+    const existing = await store.getEntity(spec.type, spec.id);
+    if (existing) return this.platform.policy.visible(principal, existing.markings ?? []) ? { ok: false, reason: `${spec.type}/${spec.id} already exists` } : denied;
     await store.upsertEntity({
       id: spec.id, type: spec.type, ts: nowNs, source: `principal:${principal.id}`, schemaVersion: 0x010000,
       fields: spec.fields, provenance: {}, markings, causationId: cause?.envelopeId,

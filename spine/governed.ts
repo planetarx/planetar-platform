@@ -14,8 +14,9 @@ import { jstr } from './json.ts';
 
 type Bound = Partial<Record<RoleId, Adapter>>;
 
-/** the result of checking a batch of entity ids against the canonical store */
-interface Screen { ok: Set<EntityId>; hidden: Set<EntityId>; markings: MarkingId[] }
+/** the result of checking a batch of entity ids against the canonical store: `hidden` rows are
+ *  known and withheld; `unknown` ids are not entities at all (projection debris), also withheld */
+interface Screen { ok: Set<EntityId>; hidden: Set<EntityId>; unknown: Set<EntityId>; markings: MarkingId[] }
 
 /** an object exposing only `keys` of `a`, bound to it */
 function pick<T extends object, K extends keyof T>(a: T, keys: K[]): Pick<T, K> {
@@ -31,7 +32,11 @@ export class GovernedPlatform {
   #bound: Bound;
   #gov: GovernanceConfig;
   readonly principal: Principal;
-  constructor(bound: Bound, principal: Principal, gov: GovernanceConfig) { this.#bound = bound; this.principal = principal; this.#gov = gov; }
+  constructor(bound: Bound, principal: Principal, gov: GovernanceConfig) {
+    // an in-engine filter compares strings; anything else in `clearances` must not reach it
+    if (!Array.isArray(principal.clearances) || principal.clearances.some((c) => typeof c !== 'string')) throw new GovernanceError(`principal ${principal.id}: clearances must be strings`);
+    this.#bound = bound; this.principal = principal; this.#gov = gov;
+  }
 
   has(r: RoleId): boolean { return !!this.#bound[r]; }
 
@@ -69,24 +74,26 @@ export class GovernedPlatform {
     const uniq = [...new Set(ids)];
     const store = this.#bound['canonical-store'] as CanonicalStore | undefined;
     const known = store && uniq.length ? await store.markingsOf(uniq) : {};
-    const ok = new Set<EntityId>(), hidden = new Set<EntityId>(), all = new Set<MarkingId>();
+    const ok = new Set<EntityId>(), hidden = new Set<EntityId>(), unknown = new Set<EntityId>(), all = new Set<MarkingId>();
     for (const id of uniq) {
       const marks = known[id];
-      if (marks === undefined) { hidden.add(id); continue; }
+      if (marks === undefined) { unknown.add(id); continue; }
       for (const m of marks) all.add(m);
       if (this.#gov.policy.visible(this.principal, marks)) ok.add(id); else hidden.add(id);
     }
-    return { ok, hidden, markings: [...all] };
+    return { ok, hidden, unknown, markings: [...all] };
   }
 
   /** One read record per governed call. Its own markings cover returned AND withheld rows, so a
    *  principal cannot learn a withheld count from its own audit trail (spec §4.8). */
-  async #audit(method: string, detail: Record<string, Json>, returned: number, withheld: number, markings: MarkingId[]): Promise<void> {
+  async #audit(method: string, detail: Record<string, Json>, returned: number, withheld: number, markings: MarkingId[], unknown = 0): Promise<void> {
     const log = this.#bound['audit-log'] as AuditLog | undefined;
     const mode = this.#gov.auditReads;
     if (!log || mode === 'none') return;
     if (mode === 'marked' && withheld === 0 && markings.length === 0) return;
-    await log.append({ ts: this.#gov.nowNs(), actor: this.principal.id, action: 'read', resource: method, detail: { ...detail, returned, withheld }, markings });
+    // `withheld` counts marked rows only (their markings mark this record); ids that are not
+    // entities are reported apart, since they reveal nothing a reader may not know
+    await log.append({ ts: this.#gov.nowNs(), actor: this.principal.id, action: 'read', resource: method, detail: { ...detail, returned, withheld, ...(unknown ? { unknown } : {}) }, markings });
   }
 
   /** refuse to filter, sort or aggregate on a field the principal cannot read (it would be an oracle) */
@@ -143,7 +150,7 @@ export class GovernedPlatform {
         const links = await store.getLinks(type, id, linkType);
         const s = await this.#screen([id, ...links.flatMap((l) => [l.from, l.to])]);
         const out = s.ok.has(id) ? links.filter((l) => s.ok.has(l.from) && s.ok.has(l.to)) : [];
-        await this.#audit('canonical-store.getLinks', { type, id }, out.length, links.length - out.length, s.markings);
+        await this.#audit('canonical-store.getLinks', { type, id }, out.length, s.hidden.size, s.markings, s.unknown.size);
         return out;
       },
     };
@@ -166,7 +173,7 @@ export class GovernedPlatform {
         const res = await ix.search({ ...q, principal: p });
         const s = await this.#screen(res.hits.map((h) => h.id));          // backstop, whatever the engine claims
         const hits = res.hits.filter((h) => s.ok.has(h.id));
-        await this.#audit('object-index.search', { type: q.type ?? null, text: q.text ?? null }, hits.length, res.hits.length - hits.length, s.markings);
+        await this.#audit('object-index.search', { type: q.type ?? null, text: q.text ?? null }, hits.length, s.hidden.size, s.markings, s.unknown.size);
         return enforcing ? { hits, cursor: res.cursor, facets: res.facets, total: res.total } : { hits, cursor: res.cursor };
       },
       aggregate: async (q) => {
@@ -186,8 +193,12 @@ export class GovernedPlatform {
   async #walk(start: EntityId, spec: TraversalSpec, hops: number, target?: EntityId) {
     const g = this.#raw('graph');
     const nodes = new Map<EntityId, GraphNode>(), edges = new Map<string, GraphEdge>(), prev = new Map<EntityId, EntityId>();
-    const dist = new Map<EntityId, number>(), hidden = new Set<EntityId>(), marks = new Set<MarkingId>();
-    const note = (s: Screen) => { for (const h of s.hidden) hidden.add(h); for (const m of s.markings) marks.add(m); };
+    const dist = new Map<EntityId, number>(), hidden = new Set<EntityId>(), unknown = new Set<EntityId>(), marks = new Set<MarkingId>();
+    const note = (s: Screen) => { for (const h of s.hidden) hidden.add(h); for (const u of s.unknown) unknown.add(u); for (const m of s.markings) marks.add(m); };
+    const policy = this.#gov.policy, p = this.principal;
+    // engine nodes and edges may carry fields: redact them like any other read
+    const node = (n: GraphNode): GraphNode => n.fields ? { ...n, fields: policy.redactFields(p, n.type, n.fields) } : n;
+    const edge = (e: GraphEdge): GraphEdge => e.fields ? { ...e, fields: policy.redactFields(p, e.linkType, e.fields) } : e;
     const first = await this.#screen([start]); note(first);
     let frontier: EntityId[] = first.ok.has(start) ? [start] : [];
     if (frontier.length) dist.set(start, 0);
@@ -198,14 +209,14 @@ export class GovernedPlatform {
         const s = await this.#screen(sub.nodes.map((n) => n.id)); note(s);
         for (const n of sub.nodes) {
           if (!s.ok.has(n.id)) continue;
-          nodes.set(n.id, n);
+          nodes.set(n.id, node(n));
           if (!dist.has(n.id)) { dist.set(n.id, h + 1); prev.set(n.id, id); next.push(n.id); }
         }
-        for (const e of sub.edges) if (s.ok.has(e.from) && s.ok.has(e.to)) edges.set(`${e.from}|${e.to}|${e.linkType}`, e);
+        for (const e of sub.edges) if (s.ok.has(e.from) && s.ok.has(e.to)) edges.set(`${e.from}|${e.to}|${e.linkType}`, edge(e));
       }
       frontier = next;
     }
-    return { nodes, edges, prev, dist, hidden, marks };
+    return { nodes, edges, prev, dist, hidden, unknown, marks };
   }
 
   #graph(): GovernedPortByRole['graph'] {
@@ -213,14 +224,14 @@ export class GovernedPlatform {
       neighbors: async (id, spec) => {
         this.#noProtectedField('graph.neighbors', (spec.filter ?? []).map((f) => f.field));
         const w = await this.#walk(id, spec, spec.maxHops ?? 2);
-        await this.#audit('graph.neighbors', { id }, w.nodes.size, w.hidden.size, [...w.marks]);
+        await this.#audit('graph.neighbors', { id }, w.nodes.size, w.hidden.size, [...w.marks], w.unknown.size);
         return { nodes: [...w.nodes.values()], edges: [...w.edges.values()] };
       },
       shortestPath: async (a, b, spec) => {
         this.#noProtectedField('graph.shortestPath', (spec.filter ?? []).map((f) => f.field));
         const w = await this.#walk(a, spec, spec.maxHops ?? 6, b);
         const length = w.dist.get(b);
-        await this.#audit('graph.shortestPath', { from: a, to: b }, length === undefined ? 0 : 1, w.hidden.size, [...w.marks]);
+        await this.#audit('graph.shortestPath', { from: a, to: b }, length === undefined ? 0 : 1, w.hidden.size, [...w.marks], w.unknown.size);
         if (length === undefined) return null;
         const path: EntityId[] = [b];
         while (path[0] !== a) path.unshift(w.prev.get(path[0])!);
@@ -236,15 +247,15 @@ export class GovernedPlatform {
     return {
       knn: async (vec, k, filter) => {
         this.#noProtectedField('vector.knn', filter);
-        let out: ScoredId[] = []; let hidden = 0; let marks: MarkingId[] = [];
+        let out: ScoredId[] = []; let hidden = 0; let unknown = 0; let marks: MarkingId[] = [];
         // over-fetch, drop what is not visible, widen until k remain or the store is exhausted
         for (let want = k * 4, round = 0; round < 4; want *= 4, round++) {
           const got = await v.knn(vec, want, filter);
           const s = await this.#screen(got.map((r) => r.id));
-          out = got.filter((r) => s.ok.has(r.id)).slice(0, k); hidden = s.hidden.size; marks = s.markings;
+          out = got.filter((r) => s.ok.has(r.id)).slice(0, k); hidden = s.hidden.size; unknown = s.unknown.size; marks = s.markings;
           if (out.length >= k || got.length < want) break;
         }
-        await this.#audit('vector.knn', { k }, out.length, hidden, marks);
+        await this.#audit('vector.knn', { k }, out.length, hidden, marks, unknown);
         return out;
       },
     };
@@ -257,7 +268,7 @@ export class GovernedPlatform {
     const one = async <T>(method: string, entityId: EntityId, read: () => Promise<T[]>): Promise<T[]> => {
       const s = await this.#screen([entityId]);
       const pts = s.ok.has(entityId) ? await read() : [];
-      await this.#audit(`timeseries-geo.${method}`, { entityId }, pts.length, s.hidden.size, s.markings);
+      await this.#audit(`timeseries-geo.${method}`, { entityId }, pts.length, s.hidden.size, s.markings, s.unknown.size);
       return pts;
     };
     return {
@@ -267,7 +278,8 @@ export class GovernedPlatform {
         const pts = await ts.within(geo, w);
         const s = await this.#screen(pts.map((pt) => pt.entityId));
         const out = pts.filter((pt) => s.ok.has(pt.entityId));
-        await this.#audit('timeseries-geo.within', {}, out.length, pts.length - out.length, s.markings);
+        const dropped = pts.filter((pt) => !s.ok.has(pt.entityId));
+        await this.#audit('timeseries-geo.within', {}, out.length, dropped.filter((pt) => s.hidden.has(pt.entityId)).length, s.markings, dropped.filter((pt) => s.unknown.has(pt.entityId)).length);
         return out;
       },
     };
@@ -336,7 +348,7 @@ export class GovernedPlatform {
         ok.set(r, (!ent || s.ok.has(ent.id)) && policy.visible(p, eff));
       }
       const out = edges.filter((e) => ok.get(e.upstream) && ok.get(e.downstream) && policy.visible(p, e.markings ?? []));
-      await this.#audit(`lineage.${method}`, {}, out.length, edges.length - out.length, [...marks]);
+      await this.#audit(`lineage.${method}`, {}, out.length, edges.length - out.length - s.unknown.size, [...marks], s.unknown.size);
       return out;
     };
     return {

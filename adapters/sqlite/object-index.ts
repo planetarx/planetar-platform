@@ -8,7 +8,7 @@ import { registerAdapter } from '../../spine/contracts.ts';
 
 const DDL = `CREATE TABLE IF NOT EXISTS idx (type TEXT, id TEXT, text TEXT, fields TEXT, markings TEXT NOT NULL DEFAULT '[]', PRIMARY KEY(type,id));`;
 // a row is selectable when it carries no marking outside the principal's clearances (bound as a JSON array)
-const VISIBLE = `NOT EXISTS (SELECT 1 FROM json_each(idx.markings) m WHERE m.value NOT IN (SELECT value FROM json_each(?)))`;
+const VISIBLE = `NOT EXISTS (SELECT 1 FROM json_each(idx.markings) m WHERE m.value NOT IN (SELECT value FROM json_each(?) WHERE value IS NOT NULL))`;
 
 export class SqliteObjectIndex implements ObjectIndex {
   private db!: DatabaseSync;

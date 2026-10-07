@@ -3,8 +3,8 @@
 import { DatabaseSync } from 'node:sqlite';
 import { openDb } from './_db.ts';
 import type { GraphStore, AdapterContext, AdapterCapabilities, GraphNode, GraphEdge, TraversalSpec, Subgraph, Path } from '../../spine/ports.ts';
-import type { EntityId, HealthStatus } from '../../spine/model.ts';
-import { jstr } from '../../spine/json.ts';
+import type { EntityId, HealthStatus, Json } from '../../spine/model.ts';
+import { jstr, jparse } from '../../spine/json.ts';
 import { registerAdapter } from '../../spine/contracts.ts';
 
 const DDL = `
@@ -38,7 +38,10 @@ export class SqliteGraphStore implements GraphStore {
       `WITH RECURSIVE nb(id,hop) AS (SELECT ?,0 UNION ${rec}) SELECT DISTINCT id FROM nb WHERE id<>?`,
     ).all(...(params as never[])) as { id: string }[];
     const ids = new Set([id, ...rows.map((r) => r.id)]);
-    const nodes = [...ids].map((nid) => { const n = this.db.prepare('SELECT id,type FROM gnode WHERE id=?').get(nid) as { id: string; type: string } | undefined; return n ? { id: n.id, type: n.type } : { id: nid, type: 'unknown' }; });
+    const nodes = [...ids].map((nid) => {
+      const n = this.db.prepare('SELECT id,type,fields FROM gnode WHERE id=?').get(nid) as { id: string; type: string; fields: string } | undefined;
+      return n ? { id: n.id, type: n.type, fields: jparse<Record<string, Json>>(n.fields) } : { id: nid, type: 'unknown' };
+    });
     const edges = this.db.prepare('SELECT from_id,to_id,link_type FROM gedge WHERE from_id IN (SELECT value FROM json_each(?)) OR to_id IN (SELECT value FROM json_each(?))')
       .all(JSON.stringify([...ids]), JSON.stringify([...ids])) as { from_id: string; to_id: string; link_type: string }[];
     return { nodes, edges: edges.filter((e) => ids.has(e.from_id) && ids.has(e.to_id)).map((e) => ({ from: e.from_id, to: e.to_id, linkType: e.link_type })) };

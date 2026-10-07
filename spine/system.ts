@@ -6,6 +6,7 @@
 // Lineage is the record of what must flow down; entity rows and projections are the result.
 import type { RoleId, Adapter, PortByRole, CanonicalStore, Lineage, ObjectIndex, LineageEdge, IndexDoc } from './ports.ts';
 import type { CanonicalEntity, MarkingId, TypeName, EntityId, Tx } from './model.ts';
+import type { GovernanceConfig } from './contracts.ts';
 import { GovernanceError, entityRef, parseRef, union } from './governance.ts';
 
 type Bound = Partial<Record<RoleId, Adapter>>;
@@ -23,9 +24,10 @@ function wrap<T extends object>(target: T, overrides: Record<string, unknown>): 
 
 export class SystemPlatform {
   #bound: Bound;
+  #gov: GovernanceConfig;
   /** who is holding the raw ports — every call site names itself (the suite checks the list). */
   readonly component: string;
-  constructor(bound: Bound, component: string) { this.#bound = bound; this.component = component; }
+  constructor(bound: Bound, component: string, gov: GovernanceConfig) { this.#bound = bound; this.component = component; this.#gov = gov; }
 
   has(r: RoleId): boolean { return !!this.#bound[r]; }
 
@@ -69,15 +71,12 @@ export class SystemPlatform {
     return stamped;
   }
 
-  /** union `markings` into an existing entity and its projections; true if the set grew. */
+  /** union `markings` into an existing entity and its projections; true if the set grew. The
+   *  engine does it in one statement without touching fields, so a concurrent field write survives. */
   async #stamp(type: TypeName, id: EntityId, markings: MarkingId[]): Promise<boolean> {
     const store = this.#bound['canonical-store'] as CanonicalStore | undefined;
-    const e = store ? await store.getEntity(type, id) : null;
-    if (!store || !e) return false;
-    const next = union(e.markings, markings);
-    if (next.length === (e.markings ?? []).length) return false;
-    await store.upsertEntity({ ...e, markings: next });
-    await this.#restamp(type, id, next);
+    if (!store || !await store.addMarkings(type, id, markings)) return false;
+    await this.#restamp(type, id, (await store.markingsOf([id]))[id] ?? markings);
     return true;
   }
 
@@ -113,11 +112,13 @@ export class SystemPlatform {
     if (inherited.length) await this.#stampDown(edge.downstream, inherited);
   }
 
-  /** I2 for projections: an index row never carries fewer markings than its canonical row. */
+  /** I2 for projections: an index row never carries fewer markings than its canonical row — and
+   *  never holds a protected field, whatever the caller passed (spec §4.7). `text` is the
+   *  caller's own; indexDocFor() builds it from public fields only. */
   async #index(type: TypeName, id: EntityId, doc: IndexDoc): Promise<void> {
     const ix = this.#bound['object-index'] as ObjectIndex;
     const store = this.#bound['canonical-store'] as CanonicalStore | undefined;
     const canon = store ? (await store.markingsOf([id]))[id] : undefined;
-    await ix.index(type, id, { ...doc, markings: union(doc.markings, canon) });
+    await ix.index(type, id, { ...doc, fields: this.#gov.policy.publicFields(type, doc.fields), markings: union(doc.markings, canon) });
   }
 }

@@ -72,7 +72,7 @@ export type Rule = 'governed' | 'open' | 'system';
 type PortMethod<R extends RoleId> = Exclude<keyof PortByRole[R], keyof Adapter> & string;
 
 export const GOVERNANCE_RULES = {
-  'canonical-store': { getEntity: 'governed', listEntities: 'governed', getLinks: 'governed', putObservation: 'system', upsertEntity: 'system', putLink: 'system', transaction: 'system', markingsOf: 'system' },
+  'canonical-store': { getEntity: 'governed', listEntities: 'governed', getLinks: 'governed', putObservation: 'system', upsertEntity: 'system', putLink: 'system', transaction: 'system', markingsOf: 'system', addMarkings: 'system' },
   'hot-cache': { get: 'governed', set: 'governed', del: 'governed', incr: 'governed', publish: 'governed', subscribe: 'governed' },
   'stream': { subscribe: 'governed', publish: 'system', ack: 'system' },
   'object-index': { search: 'governed', aggregate: 'governed', index: 'system', remove: 'system', searchCandidates: 'system', setMarkings: 'system' },
@@ -122,7 +122,10 @@ export async function propagate(platform: BoundPlatform, ref: string, markings: 
   const sys = platform.system('governance.propagate');
   const stamped = await sys.applyMarking(ref, markings);
   if (sys.has('audit-log')) {
-    await sys.role('audit-log').append({ ts: platform.nowNs(), actor, action: 'admin', resource: ref, detail: { propagated: markings, to: stamped }, markings });
+    // the record names every stamped entity, so it carries all of their markings, not only the new one
+    const ids = stamped.map((r) => parseRef(r)?.id).filter((x): x is EntityId => x !== undefined);
+    const theirs = sys.has('canonical-store') ? Object.values(await sys.role('canonical-store').markingsOf(ids)).flat() : [];
+    await sys.role('audit-log').append({ ts: platform.nowNs(), actor, action: 'admin', resource: ref, detail: { propagated: markings, to: stamped }, markings: union(markings, theirs) });
   }
   return stamped;
 }

@@ -29,9 +29,25 @@ export class SqliteCanonicalStore implements CanonicalStore {
   async putObservation(obs: Observation): Promise<void> {
     this.db.prepare('INSERT OR REPLACE INTO observation(id,type,body,ts) VALUES(?,?,?,?)').run(obs.id, obs.type, jstr(obs), obs.ts.toString());
   }
+  /** On conflict the new body wins, except that markings are the UNION of old and new: a writer
+   *  holding a stale copy of the row cannot remove a marking the row gained meanwhile (I2). */
   async upsertEntity(e: CanonicalEntity): Promise<void> {
-    this.db.prepare('INSERT INTO entity(type,id,body,updated_at) VALUES(?,?,?,?) ON CONFLICT(type,id) DO UPDATE SET body=excluded.body, updated_at=excluded.updated_at')
+    this.db.prepare(`INSERT INTO entity(type,id,body,updated_at) VALUES(?,?,?,?)
+      ON CONFLICT(type,id) DO UPDATE SET
+        body = json_set(excluded.body, '$.markings', (SELECT json_group_array(value) FROM (
+          SELECT value FROM json_each(COALESCE(json_extract(entity.body,'$.markings'),'[]'))
+          UNION SELECT value FROM json_each(COALESCE(json_extract(excluded.body,'$.markings'),'[]'))))),
+        updated_at = excluded.updated_at`)
       .run(e.type, e.id, jstr(e), e.ts.toString());
+  }
+  /** one statement: union the markings into the stored body, fields untouched; true iff it grew. */
+  async addMarkings(type: TypeName, id: EntityId, markings: MarkingId[]): Promise<boolean> {
+    const added = JSON.stringify(markings);
+    const r = this.db.prepare(`UPDATE entity SET body = json_set(body, '$.markings', (SELECT json_group_array(value) FROM (
+        SELECT value FROM json_each(COALESCE(json_extract(body,'$.markings'),'[]')) UNION SELECT value FROM json_each(?))))
+      WHERE type=? AND id=? AND EXISTS (SELECT 1 FROM json_each(?) n WHERE n.value NOT IN (SELECT value FROM json_each(COALESCE(json_extract(body,'$.markings'),'[]'))))`)
+      .run(added, type, id, added);
+    return Number(r.changes) > 0;
   }
   async putLink(l: Link): Promise<void> {
     this.db.prepare('INSERT OR REPLACE INTO link(id,link_type,from_id,to_id,body) VALUES(?,?,?,?,?)').run(l.id, l.linkType, l.from, l.to, jstr(l));

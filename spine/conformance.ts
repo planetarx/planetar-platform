@@ -49,6 +49,17 @@ const SUITES: Partial<Record<RoleId, (a: Adapter, t: T) => Promise<void>>> = {
       for (const id of await Promise.all(['t1', 't2', 't3'].map(put))) if (!await s.getEntity('x:T', id)) throw new Error(`${id} was not committed`);
       return 'ok';
     });
+    await t('addMarkings is atomic, and upsertEntity never shrinks the markings a row already has', async () => {
+      const row = (f: number, markings: string[]) => ({ id: 'm3', type: 'x:T', ts: nowNs(), source: 's', schemaVersion: 1, fields: { f }, provenance: {}, markings });
+      await s.upsertEntity(row(1, ['A']));
+      if (!await s.addMarkings('x:T', 'm3', ['B'])) throw new Error('addMarkings should report growth');
+      if (await s.addMarkings('x:T', 'm3', ['B'])) throw new Error('addMarkings should report no growth the second time');
+      if (await s.addMarkings('x:T', 'nope', ['B'])) throw new Error('addMarkings on a missing row must report false');
+      await s.upsertEntity(row(2, ['A']));                         // a writer holding a stale copy of the row
+      const g = await s.getEntity('x:T', 'm3');
+      if (g?.fields.f !== 2 || (g.markings ?? []).slice().sort().join() !== 'A,B') throw new Error(`fields=${JSON.stringify(g?.fields)} markings=${JSON.stringify(g?.markings)}`);
+      return 'ok';
+    });
     await t('markingsOf: known ids with their markings, unknown ids omitted', async () => {
       await s.upsertEntity({ id: 'm1', type: 'x:T', ts: nowNs(), source: 's', schemaVersion: 1, fields: {}, provenance: {}, markings: ['A', 'B'] });
       await s.upsertEntity({ id: 'm2', type: 'x:T', ts: nowNs(), source: 's', schemaVersion: 1, fields: {}, provenance: {} });
@@ -76,6 +87,8 @@ const SUITES: Partial<Record<RoleId, (a: Adapter, t: T) => Promise<void>>> = {
       await ix.index('e:T', 'sec', { id: 'sec', type: 'e:T', text: 'charlie two', fields: {}, markings: ['U', 'S'] });
       if (await ids(low) !== 'pub' || await ids(high) !== 'pub,sec') throw new Error(`search low=${await ids(low)} high=${await ids(high)}`);
       if (await count(low) !== 1 || await count(high) !== 2 || await count() !== 2) throw new Error(`count low=${await count(low)} high=${await count(high)} none=${await count()}`);
+      const odd: Principal = { id: 'odd', roles: [], clearances: ['U', null as unknown as string] };
+      if (await count(odd) !== 1 || await ids(odd) !== 'pub') throw new Error(`a null clearance counted as held: count=${await count(odd)} ids=${await ids(odd)}`);
       await ix.setMarkings('e:T', 'pub', ['U', 'S']);
       if (await ids(low) !== '' || await count(low) !== 0) throw new Error('setMarkings did not restrict the row');
       return 'ok';

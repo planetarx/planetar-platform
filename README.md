@@ -37,7 +37,7 @@ Decision (locked): **custom spine + OSS breadth.** The spine never depends on a 
 | [`13-CLIENT-MANIFEST.md`](./13-CLIENT-MANIFEST.md) | The per-client manifest schema (assigns engines to roles) + validation + a worked example | ⭐ |
 | [`spine/`](./spine/README.md) | **Real TypeScript** of the locked contracts: `model.ts`, `ports.ts` (14 role ports), `contracts.ts` (binder), `compiler.ts`+`capabilities.ts` (manifest compiler), `conformance.ts`, `governance.ts` + `governed.ts` + `system.ts` (policy, the read gate over every role, and the write-side marking invariants), `kinetic.ts` (Action Types), `flows.ts` (declarative automation). Type-checks clean. | ✅ Phases 0–4 |
 | [`adapters/`](./adapters/) | 15 runnable zero-service adapters (sqlite ×6, file ×2, fs ×3, memory, git-fs, internal, broker-over-node:net) registered into the binder; all 14 conformant | ✅ Phase 1 + 2 |
-| [`boot/`](./boot/README.md) | Runnable proofs: `boot:edge` (9/9), `boot:enterprise` (13/13), `conformance` (14/14), `governance` (64/64), `automation` (8/8) | ✅ runnable proof |
+| [`boot/`](./boot/README.md) | Runnable proofs: `boot:edge` (9/9), `boot:enterprise` (13/13), `conformance` (14/14), `governance` (70/70), `automation` (8/8) | ✅ runnable proof |
 | [`20-PARITY-MATRIX/`](./20-PARITY-MATRIX/README.md) | Palantir + Salesforce feature parity: 555 features → spine/OSS component → storage roles → status | ✅ 11 slices + scorecard |
 | [`30-CLIENTS/`](./30-CLIENTS/README.md) | The 4 reference client architectures, each a full manifest + topology + sample code | ✅ 4 clients |
 | [`40-ADAPTERS/`](./40-ADAPTERS/README.md) | Per-engine adapter sample code (redis, sqlite, postgres, mysql, kafka, spanner, …) | ✅ 9 adapter sets |

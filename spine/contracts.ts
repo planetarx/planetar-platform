@@ -137,7 +137,7 @@ export class BoundPlatform {
   /** Governed ports for one principal: reads are filtered and redacted; there are no data writes. */
   as(principal: Principal): GovernedPlatform { return new GovernedPlatform(this.#bound, principal, this.#gov); }
   /** Raw ports for spine internals, ingest and seeding. `component` names the caller. */
-  system(component: string): SystemPlatform { return new SystemPlatform(this.#bound, component); }
+  system(component: string): SystemPlatform { return new SystemPlatform(this.#bound, component, this.#gov); }
   get policy(): MarkingPolicy { return this.#gov.policy; }
   nowNs(): bigint { return this.#gov.nowNs(); }
   has(r: RoleId): boolean { return !!this.#bound[r]; }

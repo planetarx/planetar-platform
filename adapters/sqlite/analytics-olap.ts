@@ -18,7 +18,7 @@ const FIELD = /^[A-Za-z0-9_:.-]+$/;         // a logical field name, e.g. 'plane
 const FNS = ['count', 'sum', 'avg', 'min', 'max'];
 const OPS: Record<string, string> = { eq: '=', ne: '<>', gt: '>', lt: '<', gte: '>=', lte: '<=' };
 // a canonical row is selectable when it carries no marking outside the principal's clearances
-const VISIBLE = `NOT EXISTS (SELECT 1 FROM json_each(COALESCE(json_extract(body,'$.markings'),'[]')) m WHERE m.value NOT IN (SELECT value FROM json_each(?)))`;
+const VISIBLE = `NOT EXISTS (SELECT 1 FROM json_each(COALESCE(json_extract(body,'$.markings'),'[]')) m WHERE m.value NOT IN (SELECT value FROM json_each(?) WHERE value IS NOT NULL))`;
 
 export class SqliteOlap implements AnalyticsOlap {
   private db!: DatabaseSync;

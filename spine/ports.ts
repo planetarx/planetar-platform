@@ -99,6 +99,11 @@ export interface CanonicalStore extends Adapter {
   /** Stored markings by entity id — the authority every governed read is checked against.
    *  Ids the store does not hold are omitted; an entity with no markings maps to []. */
   markingsOf(ids: EntityId[]): Promise<Record<EntityId, MarkingId[]>>;
+  /** Add markings to a stored entity WITHOUT touching its fields, atomically in the engine, so a
+   *  propagation racing a field write loses neither. True when the set grew; false when the row
+   *  is missing or already carried them. An engine's upsertEntity must likewise never remove a
+   *  marking the stored row already has. */
+  addMarkings(type: TypeName, id: EntityId, markings: MarkingId[]): Promise<boolean>;
 
   transaction<T>(fn: (tx: Tx) => Promise<T>): Promise<T>;
 }

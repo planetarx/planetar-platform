@@ -1,6 +1,6 @@
 # Governed ports — no ungoverned read or write path
 
-**Date:** 2026-10-06 · **Status:** draft for review · **Roadmap:** completes the open items of
+**Date:** 2026-10-06 · **Status:** approved 2026-10-06; implemented on branch `governed-ports` (corrections from the whole-branch review folded in) · **Roadmap:** completes the open items of
 Phase 3 ([`90-ROADMAP.md`](../../90-ROADMAP.md)) inside this repo; closes suspects 1, 2 and 7 of
 [`91-HANDOFF.md`](../../91-HANDOFF.md) §6.
 
@@ -169,6 +169,11 @@ New capability flag `AdapterCapabilities.enforcesMarkings`. An adapter that sets
    field of a canonical type, never as a storage column or another table;
 3. implement `setMarkings(type, id, markings)`.
 
+Every canonical-store engine, enforcing or not, implements `addMarkings(type, id, markings)` as
+one atomic statement that touches no field, and its `upsertEntity` never removes a marking the
+stored row already has. Stamping goes through `addMarkings`, so a propagation racing a field
+write loses neither (the sqlite adapter does both with JSON functions in a single statement).
+
 In this change: `sqlite` object-index and `sqlite` analytics-olap become enforcing. No other
 adapter needs it, because the facade handles their roles row by row.
 
@@ -290,8 +295,13 @@ must stay green. `typecheck` must pass under `tsc --strict`, which first needs T
 
 ## 7. Known limitations of this version
 
-- A protected field cannot be searched, filtered or aggregated by anyone, including cleared
-  principals.
+- A protected field is never searchable: shared projections do not hold it. Filtering, sorting
+  or aggregating on it is refused for a principal who cannot read it and allowed for one who can
+  (canonical store, reports). A precondition in a registered action is a one-bit oracle on the
+  field it names: the registry is readable, so its fixed value is known.
+- `createEntity` with a caller-chosen id: a collision with an entity the creator cannot see is
+  reported as the same denial as a policy refusal, but success on a fresh id is inherent to any
+  create-by-id call. Mint ids (UUIDv7); do not accept guessed ones from untrusted callers.
 - Field-level security covers entity fields. Stream envelope payloads and track-point fields are
   governed by row markings only: whoever may see the envelope or the entity sees all of it.
 - A blob is readable by whoever holds its handle. Hiding the field that carries the handle is the

@@ -127,7 +127,7 @@ Status convention: `built` (a named repo does it today) · `partial` (a named re
 |---|---|---|---|---|---|
 | Comprehensive audit | Immutable record of every read/write/export/admin/AI action | P1 | **R11** | **Spine** — audit envelope on the bus; OSS: **clickhouse** sink at scale | partial — `doibio` immutable event-log audit (`src/lib/event-log.ts`); broker WAL R11; reads not yet audited |
 | Data lineage (Monocle) | Provenance graph source→dataset→object→derivation | P1 | **R12**, **R10** | **Spine** — lineage emit rules; OSS: **Marquez** (OpenLineage) | designed — per-field provenance is the seed; Marquez not bound |
-| Markings + propagating security | A marking at ingest flows to every derived store/object/surface | P1 | **R12**, **R13**, **R11** | **Spine** — propagation rules; OSS: **OPA** (decisions) + **Marquez** (lineage) | partial — built in the platform core 2026-10-06 (`planetar-platform/spine/governed.ts` + `system.ts`, `npm run governance` 64/64); not in the live service; per-record sharing still designed |
+| Markings + propagating security | A marking at ingest flows to every derived store/object/surface | P1 | **R12**, **R13**, **R11** | **Spine** — propagation rules; OSS: **OPA** (decisions) + **Marquez** (lineage) | partial — built in the platform core 2026-10-06 (`planetar-platform/spine/governed.ts` + `system.ts`, `npm run governance` 70/70); not in the live service; per-record sharing still designed |
 | Purpose-based access control | Gate access by declared analytic purpose, not just role | P1 | **R13**, **R11** | OSS: **OPA** policy; spine: PEP adapters at each plane | designed — adapter-as-PEP model specified; OPA not bound |
 
 ---

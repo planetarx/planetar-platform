@@ -286,7 +286,7 @@ Design: [`docs/specs/2026-10-06-governed-ports-design.md`](./docs/specs/2026-10-
 
 | Role | Obligation |
 |---|---|
-| canonical-store | `markingsOf(ids)` — stored markings by entity id; ids it does not hold are omitted. This is the authority every governed read is checked against. |
+| canonical-store | `markingsOf(ids)` — stored markings by entity id; ids it does not hold are omitted. This is the authority every governed read is checked against. `addMarkings(type, id, markings)` — one atomic statement that grows a row's markings without touching its fields (true iff it grew). `upsertEntity` never removes a marking the stored row already has. |
 | lineage | `applyMarking(ref, markings)` persists a marking at a ref; `effectiveMarkings(ref)` returns markings applied at the ref or anywhere upstream; marking records never appear as edges. |
 | object-index | `setMarkings(type, id, markings)` replaces the markings stored with a row. |
 | any role that answers **aggregates** for principals (object-index `aggregate`, analytics-olap `query`) | declare `capabilities.enforcesMarkings` and, when the query carries `principal`: select and aggregate only rows whose every marking the principal holds, **and** resolve every name in the query as a logical field of a canonical type — never as a storage column or another table. Without the flag the gate refuses the call. |
