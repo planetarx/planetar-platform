@@ -8,6 +8,8 @@ import type { BoundPlatform } from './contracts.ts';
 import type { Principal, AuditRecord, Envelope } from './ports.ts';
 import type { CanonicalEntity, MarkingId } from './model.ts';
 import { GovernanceError, entityRef, indexDocFor, propagate } from './governance.ts';
+import { KineticExecutor } from './kinetic.ts';
+import { FlowEngine, type FlowRun } from './flows.ts';
 
 export interface Check { name: string; ok: boolean; info: string }
 
@@ -21,6 +23,8 @@ export const SUITE = {
 
 export const LOW: Principal = { id: 'gov-low', roles: ['operator'], clearances: [SUITE.PUBLIC] };
 export const HIGH: Principal = { id: 'gov-high', roles: ['operator'], clearances: [SUITE.PUBLIC, SUITE.RESTRICTED] };
+/** the principal flows run as in the suite: cleared for everything it will be asked to create */
+export const AUTO: Principal = { id: 'gov-automation', roles: ['automation'], clearances: [SUITE.PUBLIC, SUITE.RESTRICTED] };
 
 // ids sort as P1 < R < P2 so a withheld row sits between two visible ones (exercises page refill)
 const P1 = 'gov-1-pub', R = 'gov-2-sec', P2 = 'gov-3-pub', D = 'gov-4-derived', L = 'gov-5-late', E = 'gov-6-early', B = 'gov-7-bottomup';
@@ -347,6 +351,79 @@ export async function governanceSuite(platform: BoundPlatform): Promise<Check[]>
       const recs = (await auditOf(high, 'gov-admin')).filter((r) => r.resource === SUITE.source && r.action === 'admin');
       if (recs.length !== 1) throw new Error(`${recs.length} record(s)`);
       if ((await auditOf(low, 'gov-admin')).length) throw new Error('LOW can see the propagation record');
+      return 'ok';
+    });
+  }
+
+  // ---------------------------------------------------------------- writes: the action gate
+  if (platform.has('registry') && platform.has('stream') && platform.has('policy-identity') && platform.has('audit-log')) {
+    const kinetic = new KineticExecutor(platform);
+    await kinetic.register({ name: 'gov:Rename', targetType: SUITE.type, params: { name: 'string' }, effects: { set: { [SUITE.name]: { param: 'name' } } } });
+    await kinetic.register({ name: 'gov:SetOwner', targetType: SUITE.type, params: { owner: 'string' }, effects: { set: { [SUITE.owner]: { param: 'owner' } } } });
+    await kinetic.register({ name: 'gov:IfOwnedBy', targetType: SUITE.type, preconditions: [{ field: SUITE.owner, op: 'eq', value: 'Somebody Else' }], effects: { set: { 'gov:checked': true } } });
+    const writes = async (resource: string) => { const out: AuditRecord[] = []; for await (const r of sys.role('audit-log').scan({ resource })) if (r.action === 'write') out.push(r); return out; };
+
+    await t('action gate: a restricted target is indistinguishable from a missing one', async () => {
+      const onRestricted = await kinetic.invoke('gov:Rename', { targetId: R, params: { name: 'pwned' } }, LOW, nowNs());
+      const onMissing = await kinetic.invoke('gov:Rename', { targetId: 'gov-missing', params: { name: 'pwned' } }, LOW, nowNs());
+      if (onRestricted.ok || onMissing.ok) throw new Error('an invoke succeeded');
+      if (onRestricted.reason?.replace(R, 'X') !== onMissing.reason?.replace('gov-missing', 'X')) throw new Error(`"${onRestricted.reason}" vs "${onMissing.reason}"`);
+      if ((await highStore.getEntity(SUITE.type, R))?.fields[SUITE.name] !== 'MV Secretname') throw new Error('the restricted entity was changed');
+      return onMissing.reason ?? 'ok';
+    });
+    await t('action gate: the returned entity is redacted for the caller', async () => {
+      const lo = await kinetic.invoke('gov:Rename', { targetId: P1, params: { name: 'MV Public' } }, LOW, nowNs());
+      const hi = await kinetic.invoke('gov:Rename', { targetId: P1, params: { name: 'MV Public' } }, HIGH, nowNs());
+      if (!lo.ok || !hi.ok) throw new Error(`LOW: ${lo.reason} HIGH: ${hi.reason}`);
+      if (lo.entity?.fields[SUITE.owner] !== undefined || hi.entity?.fields[SUITE.owner] !== 'Acme Shipping') throw new Error('redaction wrong');
+      return 'ok';
+    });
+    await t('action gate: a failed precondition on a protected field does not echo its value to LOW', async () => {
+      const lo = await kinetic.invoke('gov:IfOwnedBy', { targetId: P1 }, LOW, nowNs());
+      const hi = await kinetic.invoke('gov:IfOwnedBy', { targetId: P1 }, HIGH, nowNs());
+      if (lo.ok || hi.ok) throw new Error('precondition should fail');
+      if (lo.reason?.includes('Somebody') || !hi.reason?.includes('Somebody')) throw new Error(`LOW: ${lo.reason} | HIGH: ${hi.reason}`);
+      return lo.reason ?? 'ok';
+    });
+    await t('action gate: writing a protected field does not reveal its value through the audit log or the event stream', async () => {
+      const events = low.role('stream').subscribe(['action.**'], 'latest')[Symbol.asyncIterator]();
+      const r = await kinetic.invoke('gov:SetOwner', { targetId: P2, params: { owner: 'Hidden Holdings' } }, HIGH, nowNs());
+      if (!r.ok) throw new Error(`invoke failed: ${r.reason}`);
+      const seen: string[] = [];
+      for await (const rec of low.role('audit-log').scan({ resource: entityRef(SUITE.type, P2) })) seen.push(JSON.stringify(rec.detail ?? null));
+      const env = await first(events, 200);
+      if (env) seen.push(new TextDecoder().decode(env.payload));
+      if (seen.some((x) => x.includes('Hidden Holdings'))) throw new Error('LOW read the protected value it cannot see on the entity');
+      if ((await highStore.getEntity(SUITE.type, P2))?.fields[SUITE.owner] !== 'Hidden Holdings') throw new Error('the write did not happen');
+      return 'ok';
+    });
+    await t('action gate: createEntity checks the creator, inherits its cause, audits and records lineage', async () => {
+      const spec = { type: SUITE.type, id: 'gov-8-created', fields: { [SUITE.name]: 'MV Created' } };
+      const denied = await kinetic.createEntity({ ...spec, markings: [SUITE.RESTRICTED] }, LOW, nowNs());
+      if (denied.ok) throw new Error('LOW created an entity with a marking it does not hold');
+      const made = await kinetic.createEntity(spec, HIGH, nowNs(), { envelopeId: 'gov-env-1', markings: [SUITE.RESTRICTED] });
+      if (!made.ok) throw new Error(`HIGH create failed: ${made.reason}`);
+      if (await lowStore.getEntity(SUITE.type, spec.id)) throw new Error('the entity did not inherit its cause\'s marking');
+      if ((await writes(entityRef(SUITE.type, spec.id))).filter((r) => r.actor === HIGH.id).length !== 1) throw new Error('create was not audited once as the creator');
+      if (platform.has('lineage') && !(await sys.role('lineage').upstreamOf(entityRef(SUITE.type, spec.id))).some((e) => e.upstream === 'gov-env-1')) throw new Error('no lineage edge from the cause');
+      if ((await kinetic.createEntity(spec, HIGH, nowNs())).ok) throw new Error('create overwrote an existing entity');
+      return 'ok';
+    });
+    if (platform.has('work-queue')) await t('flows: createEntity goes through the action gate and inherits the trigger\'s markings', async () => {
+      const engine = new FlowEngine(platform, kinetic, AUTO, nowNs);
+      await engine.register({ id: 'gov-open-case', trigger: { kind: 'stream', topics: ['gov.flow.case'] },
+        steps: [{ kind: 'createEntity', type: 'gov:Case', idFrom: 'payload.caseId', fields: { 'gov:subject': { from: 'payload.subject' } } }] });
+      const runs: FlowRun[] = [];
+      void engine.start((r) => runs.push(r));
+      const trigger = (id: string, body: object): Envelope => ({ id, topic: 'gov.flow.case', source: 'src:gov@1.0.0', schema: 'gov:T', createdNs: nowNs(), markings: [SUITE.RESTRICTED], payload: new TextEncoder().encode(JSON.stringify(body)) });
+      await sys.role('stream').publish(trigger('gov-env-2', { caseId: 'gov-9-case', subject: 'restricted matter' }));
+      for (let i = 0; i < 50 && !runs.length; i++) await new Promise((res) => setTimeout(res, 20));
+      engine.stop();
+      if (runs[0]?.status !== 'completed') throw new Error(`run: ${runs[0]?.status ?? 'none'} ${runs[0]?.detail ?? ''}`);
+      if (await low.role('canonical-store').getEntity('gov:Case', 'gov-9-case')) throw new Error('LOW reads a case opened from a restricted envelope');
+      if (!await high.role('canonical-store').getEntity('gov:Case', 'gov-9-case')) throw new Error('HIGH cannot read the case');
+      const w = await writes(entityRef('gov:Case', 'gov-9-case'));
+      if (w.length !== 1 || w[0].actor !== AUTO.id || (w[0].detail as { action?: string }).action !== 'create') throw new Error(`audit: ${JSON.stringify(w.map((r) => [r.actor, r.detail]))}`);
       return 'ok';
     });
   }

@@ -5,6 +5,8 @@
 import type { BoundPlatform } from './contracts.ts';
 import type { Principal } from './ports.ts';
 import type { TypeName, EntityId, FieldName, Json, MarkingId, FilterOp, CanonicalEntity } from './model.ts';
+import type { SystemPlatform } from './system.ts';
+import { entityRef, union } from './governance.ts';
 
 export interface ActionTypeDef {
   name: TypeName;                                   // 'planetar:ConfirmDarkVessel'
@@ -26,7 +28,23 @@ export interface ActionInvocation {
 export interface ActionResult {
   ok: boolean;
   reason?: string;
+  /** the entity after the write, redacted for the principal who invoked it */
   entity?: CanonicalEntity;
+}
+
+/** A new entity to create through the gate. */
+export interface CreateSpec {
+  type: TypeName;
+  id: EntityId;
+  fields: Record<FieldName, Json>;
+  markings?: MarkingId[];
+}
+
+/** What caused a create (the triggering envelope): its markings are inherited and it becomes
+ *  the new entity's lineage parent. */
+export interface Cause {
+  envelopeId: string;
+  markings?: MarkingId[];
 }
 
 export function matchOp(actual: Json | undefined, op: FilterOp, expected: Json): boolean {
@@ -46,14 +64,20 @@ export function matchOp(actual: Json | undefined, op: FilterOp, expected: Json):
 
 export class KineticExecutor {
   private platform: BoundPlatform;
+  private sys: SystemPlatform;
   private defs = new Map<TypeName, ActionTypeDef>();
   private seq = 0;
-  constructor(platform: BoundPlatform) { this.platform = platform; }
+  constructor(platform: BoundPlatform) { this.platform = platform; this.sys = platform.system('kinetic'); }
+
+  private nextEventId(): string { return `00000000-0000-7000-8000-${String(++this.seq).padStart(12, '0')}`; }
+  private redacted(e: CanonicalEntity, principal: Principal): CanonicalEntity {
+    return { ...e, fields: this.platform.policy.redactFields(principal, e.type, e.fields) };
+  }
 
   /** Register an Action Type (also persisted to the R10 registry for provenance/discovery). */
   async register(def: ActionTypeDef): Promise<void> {
     this.defs.set(def.name, def);
-    await this.platform.role('registry').put({
+    await this.sys.role('registry').put({
       id: `action-${def.name.replace(/[:/]/g, '_')}`, type: 'core:ActionType',
       ts: 0n, source: 'platform', schemaVersion: 0x010000,
       name: def.name, semver: '1.0.0', jsonSchema: def as unknown as Json,
@@ -74,12 +98,16 @@ export class KineticExecutor {
       if (typeof v !== t) return { ok: false, reason: `param '${p}' must be ${t}` };
     }
 
-    const store = this.platform.role('canonical-store');
+    // A target the principal cannot see is reported exactly like a missing one: the gate must
+    // not confirm that a restricted entity exists.
+    const notFound: ActionResult = { ok: false, reason: `target ${def.targetType}/${inv.targetId} not found` };
+    if (!await this.platform.as(principal).role('canonical-store').getEntity(def.targetType, inv.targetId)) return notFound;
+    const store = this.sys.role('canonical-store');
     const target = await store.getEntity(def.targetType, inv.targetId);
-    if (!target) return { ok: false, reason: `target ${def.targetType}/${inv.targetId} not found` };
+    if (!target) return notFound;
 
     // governance gate: principal must hold the action's markings AND the target's markings
-    const policy = this.platform.role('policy-identity');
+    const policy = this.sys.role('policy-identity');
     const need = [...new Set([...(def.requiresMarking ?? []), ...(target.markings ?? [])])];
     const decision = await policy.authorize(principal, `action:${actionName}`, { type: def.targetType, id: inv.targetId, markings: need });
     if (!decision.allow) return { ok: false, reason: decision.reason ?? 'denied' };
@@ -87,7 +115,9 @@ export class KineticExecutor {
     // preconditions against current state
     for (const pre of def.preconditions ?? []) {
       if (!matchOp(target.fields[pre.field], pre.op, pre.value)) {
-        return { ok: false, reason: `precondition failed: ${pre.field} ${pre.op} ${JSON.stringify(pre.value)}` };
+        // on a field the principal cannot read, say which check failed but not against what
+        const readable = this.platform.policy.canUseField(principal, def.targetType, pre.field);
+        return { ok: false, reason: `precondition failed: ${pre.field} ${pre.op}${readable ? ` ${JSON.stringify(pre.value)}` : ''}` };
       }
     }
 
@@ -102,18 +132,55 @@ export class KineticExecutor {
       return target;
     });
 
-    // audit + event on the bus (a human decision is just an envelope, like a sensor reading)
-    await this.platform.role('audit-log').append({
+    // audit + event on the bus (a human decision is just an envelope, like a sensor reading).
+    // Both carry the invocation params, so when the action writes a protected field they take
+    // that field's marking too: otherwise the value would be readable in the target's audit
+    // trail and events by a principal who cannot read it on the entity.
+    const written = Object.keys(def.effects.set).flatMap((f) => this.platform.policy.fieldMarking(def.targetType, f) ?? []);
+    const recordMarkings = union(updated.markings, written);
+    await this.sys.role('audit-log').append({
       ts: nowNs, actor: principal.id, action: 'write',
       resource: `${def.targetType}/${inv.targetId}`,
-      detail: { action: actionName, params: inv.params ?? {} }, markings: target.markings,
+      detail: { action: actionName, params: inv.params ?? {} }, markings: recordMarkings,
     });
-    await this.platform.role('stream').publish({
-      id: `00000000-0000-7000-8000-${String(++this.seq).padStart(12, '0')}`,
+    await this.sys.role('stream').publish({
+      id: this.nextEventId(),
       topic: `action.${actionName.replace(/:/g, '.')}`, source: `principal:${principal.id}`,
-      schema: 'core:Event', createdNs: nowNs, markings: target.markings,
+      schema: 'core:Event', createdNs: nowNs, markings: recordMarkings,
       payload: new TextEncoder().encode(JSON.stringify({ action: actionName, target: inv.targetId, params: inv.params ?? {} })),
     });
-    return { ok: true, entity: updated };
+    return { ok: true, entity: this.redacted(updated, principal) };
+  }
+
+  /**
+   * The governed CREATE path (flows and agents use this; nothing writes entities directly).
+   * The creator must hold every marking the new entity will carry: its own plus its cause's.
+   * Never overwrites: an existing id is refused.
+   */
+  async createEntity(spec: CreateSpec, principal: Principal, nowNs: bigint, cause?: Cause): Promise<ActionResult> {
+    const markings = union(spec.markings, cause?.markings);
+    const decision = await this.sys.role('policy-identity').authorize(principal, `create:${spec.type}`, { type: spec.type, id: spec.id, markings });
+    if (!decision.allow) return { ok: false, reason: decision.reason ?? 'denied' };
+
+    const store = this.sys.role('canonical-store');
+    if (await store.getEntity(spec.type, spec.id)) return { ok: false, reason: `${spec.type}/${spec.id} already exists` };
+    await store.upsertEntity({
+      id: spec.id, type: spec.type, ts: nowNs, source: `principal:${principal.id}`, schemaVersion: 0x010000,
+      fields: spec.fields, provenance: {}, markings, causationId: cause?.envelopeId,
+    });
+    const ref = entityRef(spec.type, spec.id);
+    if (cause && this.sys.has('lineage')) await this.sys.role('lineage').record({ upstream: cause.envelopeId, downstream: ref, kind: 'transform', markings: cause.markings });
+    const created = (await store.getEntity(spec.type, spec.id))!;   // re-read: lineage may have added markings
+
+    await this.sys.role('audit-log').append({
+      ts: nowNs, actor: principal.id, action: 'write', resource: ref,
+      detail: { action: 'create', cause: cause?.envelopeId ?? null }, markings: created.markings,
+    });
+    await this.sys.role('stream').publish({
+      id: this.nextEventId(), topic: `action.create.${spec.type.replace(/:/g, '.')}`, source: `principal:${principal.id}`,
+      schema: 'core:Event', createdNs: nowNs, markings: created.markings, causationId: cause?.envelopeId,
+      payload: new TextEncoder().encode(JSON.stringify({ action: 'create', target: spec.id })),
+    });
+    return { ok: true, entity: this.redacted(created, principal) };
   }
 }
