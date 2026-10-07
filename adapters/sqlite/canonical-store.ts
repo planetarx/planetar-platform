@@ -19,6 +19,7 @@ CREATE INDEX IF NOT EXISTS link_from ON link(from_id);
 
 export class SqliteCanonicalStore implements CanonicalStore {
   private db!: DatabaseSync;
+  private txTail: Promise<unknown> = Promise.resolve();   // the queue transaction() serialises on
   readonly capabilities: AdapterCapabilities = { consistency: 'strong', durable: true, rebuildable: true, scale: 'single', p99TargetMs: 5 };
 
   async init(ctx: AdapterContext): Promise<void> {
@@ -60,10 +61,17 @@ export class SqliteCanonicalStore implements CanonicalStore {
     for (const r of rows) out[r.id] = [...new Set([...(out[r.id] ?? []), ...(JSON.parse(r.m ?? '[]') as MarkingId[])])];
     return out;
   }
+  /** One connection, so transactions run strictly one after another: a caller that arrives
+   *  while one is open waits for it to commit or roll back (a nested BEGIN would throw). */
   async transaction<T>(fn: (tx: Tx) => Promise<T>): Promise<T> {
-    this.db.exec('BEGIN');
-    try { const r = await fn({ id: 'sqlite-tx' }); this.db.exec('COMMIT'); return r; }
-    catch (e) { this.db.exec('ROLLBACK'); throw e; }
+    const run = async (): Promise<T> => {
+      this.db.exec('BEGIN');
+      try { const r = await fn({ id: 'sqlite-tx' }); this.db.exec('COMMIT'); return r; }
+      catch (e) { this.db.exec('ROLLBACK'); throw e; }
+    };
+    const result = this.txTail.then(run, run);
+    this.txTail = result.catch(() => undefined);
+    return result;
   }
   async health(): Promise<HealthStatus> { this.db.prepare('SELECT 1').get(); return { ok: true, p99Ms: 5 }; }
   async close(): Promise<void> { this.db.close(); }

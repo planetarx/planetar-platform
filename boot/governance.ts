@@ -34,11 +34,37 @@ const MANIFEST: ClientManifest = {
   },
 };
 
+// A client that binds only the five roles kinetic writes need, with read auditing off: the gate
+// and the write-side invariants must work when lineage, index, graph, cache and the rest are absent.
+const MINIMAL: ClientManifest = {
+  schema_version: '1.0',
+  client: { id: 'gov-minimal', name: 'Governed-Ports Proof (minimal roles)', tier: 'edge' },
+  capabilities: ['kinetic-writes', 'audit'],
+  roles: {
+    'canonical-store': { engine: 'sqlite', config: { path: `${D}/min/canonical.db` } },
+    'registry': { engine: 'git-fs', config: { path: `${D}/min/registry` } },
+    'audit-log': { engine: 'append-wal', config: { path: `${D}/min/audit.log` } },
+    'stream': { engine: 'file', config: { path: `${D}/min/stream.wal` } },
+    'policy-identity': { engine: 'internal', config: { clearances: ['UNCLASS'] } },
+  },
+  governance: { fls: { [SUITE.type]: { [SUITE.owner]: SUITE.RESTRICTED } }, audit: { reads: 'none' } },
+};
+
 async function main() {
   rmSync(D, { recursive: true, force: true });
   console.log('\n=== Phase 3: governed ports (adversarial suite) ===');
   const { platform } = await compile(MANIFEST);
   const results = await governanceSuite(platform);
+
+  const minimal = (await compile(MINIMAL)).platform;
+  for (const r of await governanceSuite(minimal)) {
+    // with read auditing off there is no read trail to assert on; every other check must hold
+    if (r.name.startsWith('audit: a marked read is recorded')) continue;
+    results.push({ ...r, name: `[minimal roles] ${r.name}` });
+  }
+  let reads = 0; for await (const rec of minimal.system('governance-demo').role('audit-log').scan({})) if (rec.action === 'read') reads++;
+  results.push({ name: '[minimal roles] governance.audit.reads = none writes no read records', ok: reads === 0, info: `${reads} read record(s)` });
+  await minimal.closeAll();
   console.log('\n=== Results ===');
   for (const r of results) console.log(`  ${r.ok ? '✅' : '❌'} ${r.name} — ${r.info}`);
   const passed = results.filter((r) => r.ok).length;

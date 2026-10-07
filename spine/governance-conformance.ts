@@ -124,6 +124,16 @@ export async function governanceSuite(platform: BoundPlatform): Promise<Check[]>
     return 'ok';
   });
 
+  await t('rule: an unmarked row is public; with no clearances every marked row is withheld and paging still ends', async () => {
+    const NONE: Principal = { id: 'gov-none', roles: [], clearances: [] };
+    const none = platform.as(NONE).role('canonical-store');
+    await store.upsertEntity({ id: 'gov-0-open', type: 'gov:Open', ts: nowNs(), source: 'src:gov@1.0.0', schemaVersion: 0x010000, fields: { 'gov:note': 'public' }, provenance: {} });
+    if (!await none.getEntity('gov:Open', 'gov-0-open')) throw new Error('an unmarked row was withheld');
+    const page = await none.listEntities(SUITE.type, { limit: 2 });
+    if (page.items.length || page.cursor !== undefined) throw new Error(`expected an empty, final page; got ${page.items.length} item(s), cursor ${page.cursor}`);
+    return 'ok';
+  });
+
   // ---------------------------------------------------------------- object-index
   if (platform.has('object-index')) {
     const lowIx = low.role('object-index'), highIx = high.role('object-index');
@@ -173,6 +183,13 @@ export async function governanceSuite(platform: BoundPlatform): Promise<Check[]>
       }
       return 'ok';
     });
+    await t('graph: a node the canonical store does not know is hidden from everyone', async () => {
+      await g.upsertEdge({ from: P1, to: 'gov-not-an-entity', linkType: 'gov:met' });
+      const hi = await high.role('graph').neighbors(P1, { maxHops: 2, direction: 'out' });
+      if (sorted(hi.nodes.map((n) => n.id)) !== sorted([P1, R, P2])) throw new Error(`HIGH nodes=${hi.nodes.map((n) => n.id).join(',')}`);
+      if (hi.edges.some((e) => e.to === 'gov-not-an-entity')) throw new Error('an edge to the unknown node was returned');
+      return 'ok';
+    });
   }
 
   // ---------------------------------------------------------------- vector
@@ -209,6 +226,13 @@ export async function governanceSuite(platform: BoundPlatform): Promise<Check[]>
       if ((await lts.range(R, w)).length || (await lts.downsample(R, w, 60)).length) throw new Error('LOW read the restricted track');
       if (sorted((await lts.within(here, w)).map((p) => p.entityId)) !== P1) throw new Error('LOW area query leaked');
       if ((await hts.range(R, w)).length !== 1 || (await hts.within(here, w)).length !== 2) throw new Error('HIGH is missing points');
+      return 'ok';
+    });
+    await t('timeseries-geo: a track for an id the canonical store does not know is hidden from everyone', async () => {
+      await ts.append({ entityId: 'gov-not-an-entity', ts: now, lat: 48.4, lon: -123.4 });
+      const hts = high.role('timeseries-geo');
+      if ((await hts.range('gov-not-an-entity', w)).length) throw new Error('range returned an unknown entity\'s track');
+      if ((await hts.within(here, w)).length !== 2) throw new Error('area query returned an unknown entity\'s point');
       return 'ok';
     });
   }
@@ -419,6 +443,23 @@ export async function governanceSuite(platform: BoundPlatform): Promise<Check[]>
       if ((await writes(entityRef(SUITE.type, spec.id))).filter((r) => r.actor === HIGH.id).length !== 1) throw new Error('create was not audited once as the creator');
       if (platform.has('lineage') && !(await sys.role('lineage').upstreamOf(entityRef(SUITE.type, spec.id))).some((e) => e.upstream === 'gov-env-1')) throw new Error('no lineage edge from the cause');
       if ((await kinetic.createEntity(spec, HIGH, nowNs())).ok) throw new Error('create overwrote an existing entity');
+      return 'ok';
+    });
+    await t('action gate: concurrent actions and a propagation lose neither a write nor a marking', async () => {
+      const ids = ['gov-c1', 'gov-c2', 'gov-c3', 'gov-c4'];
+      for (const id of ids) await seed(vessel(id, 'MV Concurrent', [SUITE.PUBLIC]));
+      if (platform.has('lineage')) for (const id of ids) await sys.role('lineage').record({ upstream: 'src:gov-concurrent', downstream: entityRef(SUITE.type, id), kind: 'observation-entity' });
+      const results = await Promise.all([
+        ...ids.map((id, i) => kinetic.invoke('gov:Rename', { targetId: id, params: { name: `MV Renamed ${i}` } }, HIGH, nowNs())),
+        propagate(platform, 'src:gov-concurrent', [SUITE.RESTRICTED], 'gov-admin').then((): { ok: boolean; reason?: string } => ({ ok: true })),
+      ]);
+      const failed = results.filter((r) => !r.ok);
+      if (failed.length) throw new Error(`${failed.length} call(s) failed: ${failed.map((r) => r.reason).join('; ')}`);
+      for (const [i, id] of ids.entries()) {
+        const e = await highStore.getEntity(SUITE.type, id);
+        if (e?.fields[SUITE.name] !== `MV Renamed ${i}`) throw new Error(`${id}: the rename was lost (name = ${e?.fields[SUITE.name]})`);
+        if (platform.has('lineage') && await lowStore.getEntity(SUITE.type, id)) throw new Error(`${id}: the marking was lost`);
+      }
       return 'ok';
     });
     if (platform.has('work-queue')) await t('flows: createEntity goes through the action gate and inherits the trigger\'s markings', async () => {

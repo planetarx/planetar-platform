@@ -40,6 +40,15 @@ const SUITES: Partial<Record<RoleId, (a: Adapter, t: T) => Promise<void>>> = {
       try { await s.transaction(async () => { await s.upsertEntity({ id: 'c2', type: 'x:T', ts: nowNs(), source: 's', schemaVersion: 1, fields: {}, provenance: {} }); throw new Error('boom'); }); } catch { /* expected */ }
       return 'rolled back';
     });
+    await t('transactions started together run one after another', async () => {
+      const put = (id: string) => s.transaction(async () => {
+        await s.upsertEntity({ id, type: 'x:T', ts: nowNs(), source: 's', schemaVersion: 1, fields: {}, provenance: {} });
+        await new Promise((r) => setTimeout(r, 5));          // hold the transaction open across a real await
+        return id;
+      });
+      for (const id of await Promise.all(['t1', 't2', 't3'].map(put))) if (!await s.getEntity('x:T', id)) throw new Error(`${id} was not committed`);
+      return 'ok';
+    });
     await t('markingsOf: known ids with their markings, unknown ids omitted', async () => {
       await s.upsertEntity({ id: 'm1', type: 'x:T', ts: nowNs(), source: 's', schemaVersion: 1, fields: {}, provenance: {}, markings: ['A', 'B'] });
       await s.upsertEntity({ id: 'm2', type: 'x:T', ts: nowNs(), source: 's', schemaVersion: 1, fields: {}, provenance: {} });
