@@ -3,7 +3,7 @@
 // This is what makes adapters swap-safe across clients (12-ADAPTER-CONTRACT §5).
 import { ADAPTER_REGISTRY, type RoleBinding } from './contracts.ts';
 import { consoleLogger, PERMISSIVE_MARKING, makeShared } from './compiler.ts';
-import type { RoleId, Adapter, AdapterContext, CanonicalStore, ObjectIndex, WorkQueue, Stream, BlobCas, AuditLog, Lineage, Registry, PolicyIdentity, Cache, VectorStore, GraphStore, TimeSeriesGeo } from './ports.ts';
+import type { RoleId, Adapter, AdapterContext, Principal, CanonicalStore, ObjectIndex, WorkQueue, Stream, BlobCas, AuditLog, Lineage, Registry, PolicyIdentity, Cache, VectorStore, GraphStore, TimeSeriesGeo } from './ports.ts';
 import type { Json } from './model.ts';
 
 export interface ConformanceReport { role: RoleId; engine: string; ok: boolean; checks: { name: string; ok: boolean; info: string }[]; }
@@ -40,6 +40,15 @@ const SUITES: Partial<Record<RoleId, (a: Adapter, t: T) => Promise<void>>> = {
       try { await s.transaction(async () => { await s.upsertEntity({ id: 'c2', type: 'x:T', ts: nowNs(), source: 's', schemaVersion: 1, fields: {}, provenance: {} }); throw new Error('boom'); }); } catch { /* expected */ }
       return 'rolled back';
     });
+    await t('markingsOf: known ids with their markings, unknown ids omitted', async () => {
+      await s.upsertEntity({ id: 'm1', type: 'x:T', ts: nowNs(), source: 's', schemaVersion: 1, fields: {}, provenance: {}, markings: ['A', 'B'] });
+      await s.upsertEntity({ id: 'm2', type: 'x:T', ts: nowNs(), source: 's', schemaVersion: 1, fields: {}, provenance: {} });
+      const m = await s.markingsOf(['m1', 'm2', 'nope']);
+      if ((m.m1 ?? []).slice().sort().join() !== 'A,B') throw new Error(`m1 = ${JSON.stringify(m.m1)}`);
+      if (!Array.isArray(m.m2) || m.m2.length !== 0) throw new Error(`m2 = ${JSON.stringify(m.m2)}`);
+      if ('nope' in m) throw new Error('unknown id must be omitted');
+      return 'ok';
+    });
   },
   'object-index': async (a, t) => {
     const ix = a as ObjectIndex;
@@ -47,6 +56,19 @@ const SUITES: Partial<Record<RoleId, (a: Adapter, t: T) => Promise<void>>> = {
       await ix.index('x:T', 'i1', { id: 'i1', type: 'x:T', text: 'alpha bravo', fields: { mmsi: '123' } });
       if (!(await ix.search({ type: 'x:T', text: 'bravo' })).hits.length) throw new Error('no hit');
       if (!(await ix.searchCandidates('x:T', { mmsi: '123' }, 5)).includes('i1')) throw new Error('no candidate');
+      return 'ok';
+    });
+    if (a.capabilities.enforcesMarkings) await t('enforces markings: search + aggregate filter by principal; setMarkings restricts later', async () => {
+      const low: Principal = { id: 'low', roles: [], clearances: ['U'] };
+      const high: Principal = { id: 'high', roles: [], clearances: ['U', 'S'] };
+      const count = async (p?: Principal) => (await ix.aggregate({ type: 'e:T', groupBy: [], metrics: [{ fn: 'count' }], principal: p })).rows[0].metrics.count;
+      const ids = async (p?: Principal) => (await ix.search({ type: 'e:T', text: 'charlie', principal: p })).hits.map((h) => h.id).sort().join();
+      await ix.index('e:T', 'pub', { id: 'pub', type: 'e:T', text: 'charlie one', fields: {}, markings: ['U'] });
+      await ix.index('e:T', 'sec', { id: 'sec', type: 'e:T', text: 'charlie two', fields: {}, markings: ['U', 'S'] });
+      if (await ids(low) !== 'pub' || await ids(high) !== 'pub,sec') throw new Error(`search low=${await ids(low)} high=${await ids(high)}`);
+      if (await count(low) !== 1 || await count(high) !== 2 || await count() !== 2) throw new Error(`count low=${await count(low)} high=${await count(high)} none=${await count()}`);
+      await ix.setMarkings('e:T', 'pub', ['U', 'S']);
+      if (await ids(low) !== '' || await count(low) !== 0) throw new Error('setMarkings did not restrict the row');
       return 'ok';
     });
   },
@@ -80,6 +102,17 @@ const SUITES: Partial<Record<RoleId, (a: Adapter, t: T) => Promise<void>>> = {
   'lineage': async (a, t) => {
     const l = a as Lineage;
     await t('record + downstream + propagate', async () => { await l.record({ upstream: 'A', downstream: 'B', kind: 'transform' }); await l.record({ upstream: 'B', downstream: 'C', kind: 'transform' }); const aff = await l.propagateMarking('A', ['M']); if (!aff.includes('B') || !aff.includes('C')) throw new Error('closure wrong'); return `${aff.length}`; });
+    await t('effectiveMarkings: a marking applied at a ref is inherited downstream, in either order', async () => {
+      const eff = async (ref: string) => (await l.effectiveMarkings(ref)).slice().sort().join();
+      if (await eff('C') !== 'M') throw new Error(`C should inherit M from A (propagated above), got '${await eff('C')}'`);
+      await l.record({ upstream: 'C', downstream: 'D', kind: 'transform' });            // edge recorded AFTER the marking
+      if (await eff('D') !== 'M') throw new Error(`late derivation D got '${await eff('D')}'`);
+      await l.applyMarking('B', ['N']);
+      if (await eff('D') !== 'M,N' || await eff('A') !== 'M') throw new Error(`after N at B: D='${await eff('D')}' A='${await eff('A')}'`);
+      if (await eff('unrelated') !== '') throw new Error('unrelated ref must have no markings');
+      if ((await l.downstreamOf('A')).some((e) => e.kind === 'marking')) throw new Error('marking records must not appear as edges');
+      return 'ok';
+    });
   },
   'registry': async (a, t) => {
     const r = a as Registry;

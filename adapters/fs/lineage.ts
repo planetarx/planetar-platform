@@ -22,7 +22,7 @@ export class FsLineage implements Lineage {
   async upstreamOf(ref: string, maxHops = 8): Promise<LineageEdge[]> { return this.walk(ref, maxHops, 'up'); }
   async downstreamOf(ref: string, maxHops = 8): Promise<LineageEdge[]> { return this.walk(ref, maxHops, 'down'); }
   private walk(ref: string, maxHops: number, dir: 'up' | 'down'): LineageEdge[] {
-    const edges = this.all();
+    const edges = this.all().filter((e) => e.kind !== 'marking');
     const seen = new Set<string>([ref]);
     const out: LineageEdge[] = [];
     let frontier = [ref];
@@ -36,13 +36,22 @@ export class FsLineage implements Lineage {
     }
     return out;
   }
-  /** THE moat: union+stamp `markings` down the downstream closure of `ref`. Returns affected refs. */
+  /** THE moat: apply `markings` at `ref` and return its downstream closure. Stamping the store
+   *  rows is the spine's job (spine/system.ts); the propagation edges make the closure auditable. */
   async propagateMarking(ref: string, markings: string[]): Promise<string[]> {
-    const affected = (await this.downstreamOf(ref)).map((e) => e.downstream);
-    // a real impl writes the marking onto each downstream store row via its adapter PEP (Phase 3);
-    // here we record the propagation edges so the closure is auditable.
+    await this.applyMarking(ref, markings);
+    const affected = [...new Set((await this.downstreamOf(ref)).map((e) => e.downstream))];
     for (const d of affected) await this.record({ upstream: ref, downstream: d, kind: 'field-derivation', markings });
-    return [...new Set(affected)];
+    return affected;
+  }
+  async applyMarking(ref: string, markings: string[]): Promise<void> {
+    if (markings.length) await this.record({ upstream: ref, downstream: ref, kind: 'marking', markings });
+  }
+  async effectiveMarkings(ref: string): Promise<string[]> {
+    const at = new Set([ref, ...this.walk(ref, 64, 'up').map((e) => e.upstream)]);
+    const out = new Set<string>();
+    for (const e of this.all()) if (e.kind === 'marking' && at.has(e.upstream)) for (const m of e.markings ?? []) out.add(m);
+    return [...out];
   }
   async health(): Promise<HealthStatus> { return { ok: true, p99Ms: 50 }; }
   async close(): Promise<void> {}

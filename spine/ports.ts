@@ -51,6 +51,12 @@ export interface AdapterCapabilities {
   external?: boolean;
   /** Temporal-style engines that own job execution; flips compiler claim/complete expectations. */
   ownsExecution?: boolean;
+  /** The engine persists markings per row and, when a query carries `principal`, selects and
+   *  aggregates only rows whose every marking that principal holds — and resolves every name in
+   *  that query as a logical field of a canonical type, never as a storage column or another
+   *  table. Aggregates are allowed for principals only on engines that set this
+   *  (docs/specs/2026-10-06-governed-ports-design.md §4.4). */
+  enforcesMarkings?: boolean;
 }
 
 export interface ResolvedBinding {
@@ -90,6 +96,9 @@ export interface CanonicalStore extends Adapter {
   getEntity(type: TypeName, id: EntityId): Promise<CanonicalEntity | null>;
   listEntities(type: TypeName, q: EntityQuery): Promise<Page<CanonicalEntity>>;
   getLinks(type: TypeName, id: EntityId, linkType?: TypeName): Promise<Link[]>;
+  /** Stored markings by entity id — the authority every governed read is checked against.
+   *  Ids the store does not hold are omitted; an entity with no markings maps to []. */
+  markingsOf(ids: EntityId[]): Promise<Record<EntityId, MarkingId[]>>;
 
   transaction<T>(fn: (tx: Tx) => Promise<T>): Promise<T>;
 }
@@ -170,6 +179,7 @@ export interface AggQuery {
   groupBy: FieldName[];
   metrics: { fn: 'count' | 'sum' | 'avg' | 'min' | 'max'; field?: FieldName }[];
   filter?: { field: FieldName; op: string; value: Json }[];
+  principal?: Principal;              // applies marking filter (engines with enforcesMarkings)
 }
 
 export interface AggResult {
@@ -179,6 +189,8 @@ export interface AggResult {
 export interface ObjectIndex extends Adapter {
   index(type: TypeName, id: EntityId, doc: IndexDoc): Promise<void>;
   remove(type: TypeName, id: EntityId): Promise<void>;
+  /** Replace the markings stored with an indexed row (no-op if the row is not indexed). */
+  setMarkings(type: TypeName, id: EntityId, markings: MarkingId[]): Promise<void>;
   search(q: SearchQuery): Promise<SearchResult>;
   aggregate(q: AggQuery): Promise<AggResult>;
   /** the resolver's BLOCKING step (R5/P5 → R4): candidate match ids to avoid O(n^2). */
@@ -266,6 +278,9 @@ export interface OlapQuery {
   having?: { measure: string; op: string; value: number }[];
   orderBy?: { key: string; dir: 'asc' | 'desc' }[];
   limit?: number;
+  /** When set, `from` MUST be read as a canonical type and every dimension, measure field and
+   *  `where` field as a logical field of it; rows are filtered by this principal's clearances. */
+  principal?: Principal;
 }
 
 export interface OlapResult { rows: Record<string, Json>[]; }
@@ -313,7 +328,9 @@ export interface AuditLog extends Adapter {
 export interface LineageEdge {
   upstream: string;     // source / dataset / observation / field ref
   downstream: string;   // derived dataset / object / field ref
-  kind: 'source-observation' | 'observation-entity' | 'transform' | 'field-derivation';
+  /** 'marking' is a record that `markings` were applied AT `upstream` (upstream === downstream);
+   *  it is never returned by upstreamOf/downstreamOf. */
+  kind: 'source-observation' | 'observation-entity' | 'transform' | 'field-derivation' | 'marking';
   markings?: MarkingId[];
 }
 
@@ -321,8 +338,12 @@ export interface Lineage extends Adapter {
   record(edge: LineageEdge): Promise<void>;
   upstreamOf(ref: string, maxHops?: number): Promise<LineageEdge[]>;
   downstreamOf(ref: string, maxHops?: number): Promise<LineageEdge[]>;
-  /** THE moat: union+stamp markings down the downstream closure of `ref`. */
+  /** THE moat: apply `markings` at `ref` (persisted) and return the downstream closure of `ref`. */
   propagateMarking(ref: string, markings: MarkingId[]): Promise<string[]>;
+  /** Persist that `markings` apply at `ref`, so refs derived from it later inherit them. */
+  applyMarking(ref: string, markings: MarkingId[]): Promise<void>;
+  /** Markings applied at `ref` or at any ref upstream of it. */
+  effectiveMarkings(ref: string): Promise<MarkingId[]>;
 }
 
 // ---------------------------------------------------------------------------
@@ -377,4 +398,28 @@ export interface PortByRole {
   'lineage': Lineage;
   'policy-identity': PolicyIdentity;
   'work-queue': WorkQueue;
+}
+
+// ---------------------------------------------------------------------------
+// What a principal gets: only the methods classified 'governed' or 'open' in
+// spine/governance.ts GOVERNANCE_RULES. Built by spine/governed.ts.
+// ---------------------------------------------------------------------------
+
+export interface GovernedPortByRole {
+  'canonical-store': Pick<CanonicalStore, 'getEntity' | 'listEntities' | 'getLinks'>;
+  'hot-cache': Pick<Cache, 'get' | 'set' | 'del' | 'incr' | 'publish' | 'subscribe'>;
+  'stream': Pick<Stream, 'subscribe'>;
+  'object-index': Pick<ObjectIndex, 'search' | 'aggregate'>;
+  'graph': Pick<GraphStore, 'neighbors' | 'shortestPath'>;
+  'blob-cas': Pick<BlobCas, 'get' | 'presignRead'>;
+  'vector': Pick<VectorStore, 'knn'>;
+  'timeseries-geo': Pick<TimeSeriesGeo, 'range' | 'downsample' | 'within'>;
+  'analytics-olap': Pick<AnalyticsOlap, 'query'>;
+  'registry': Pick<Registry, 'loadAll' | 'get' | 'versions'>;
+  'audit-log': Pick<AuditLog, 'scan' | 'export'>;
+  'lineage': Pick<Lineage, 'upstreamOf' | 'downstreamOf'>;
+  'policy-identity': Pick<PolicyIdentity, 'authenticate' | 'authorize' | 'members'>;
+  /** Not available to principals in this version: jobs carry no markings, so a claim could
+   *  hand a restricted payload to anyone, and anyone could complete another's job. */
+  'work-queue': Pick<WorkQueue, never>;
 }

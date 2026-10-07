@@ -4,7 +4,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { CanonicalStore } from '../../spine/ports.ts';
 import type { AdapterContext, AdapterCapabilities } from '../../spine/ports.ts';
-import type { CanonicalEntity, Observation, Link, EntityId, TypeName, Page, EntityQuery, Tx, HealthStatus } from '../../spine/model.ts';
+import type { CanonicalEntity, Observation, Link, EntityId, TypeName, Page, EntityQuery, Tx, HealthStatus, MarkingId } from '../../spine/model.ts';
 import { jstr, jparse } from '../../spine/json.ts';
 import { registerAdapter } from '../../spine/contracts.ts';
 
@@ -50,6 +50,15 @@ export class SqliteCanonicalStore implements CanonicalStore {
       ? this.db.prepare('SELECT body FROM link WHERE from_id=? AND link_type=?').all(id, linkType) as { body: string }[]
       : this.db.prepare('SELECT body FROM link WHERE from_id=?').all(id) as { body: string }[];
     return rows.map((r) => jparse<Link>(r.body));
+  }
+  async markingsOf(ids: EntityId[]): Promise<Record<EntityId, MarkingId[]>> {
+    const out: Record<EntityId, MarkingId[]> = {};
+    if (!ids.length) return out;
+    const rows = this.db.prepare("SELECT id, json_extract(body,'$.markings') AS m FROM entity WHERE id IN (SELECT value FROM json_each(?))")
+      .all(JSON.stringify(ids)) as { id: string; m: string | null }[];
+    // the key is (type,id): if one id exists under two types, the union is the safe answer
+    for (const r of rows) out[r.id] = [...new Set([...(out[r.id] ?? []), ...(JSON.parse(r.m ?? '[]') as MarkingId[])])];
+    return out;
   }
   async transaction<T>(fn: (tx: Tx) => Promise<T>): Promise<T> {
     this.db.exec('BEGIN');
