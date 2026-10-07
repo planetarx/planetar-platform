@@ -242,11 +242,12 @@ export async function bind(manifest: ClientManifest, logger: Logger): Promise<Bo
 }
 ```
 
-The spine then asks the `BoundPlatform` for ports by role:
+The `BoundPlatform` keeps the adapters private. A caller takes one of two handles (§6):
 
 ```ts
-const store = platform.role<CanonicalStore>('canonical-store');   // typed; engine-agnostic
-await store.upsertEntity(entity);
+const store = platform.as(principal).role('canonical-store');     // governed: filtered reads, no writes
+const raw = platform.system('ingest').role('canonical-store');    // spine internals, ingest, seeding
+await raw.upsertEntity(entity);
 ```
 
 ---
@@ -276,3 +277,18 @@ export function canonicalStoreConformance(make: () => CanonicalStore) {
 ```
 
 **Same suite, every engine.** Green across the matrix = a client can bind any of them and the spine behaves identically.
+
+---
+
+## 6. Governance obligations of an adapter
+
+Design: [`docs/specs/2026-10-06-governed-ports-design.md`](./docs/specs/2026-10-06-governed-ports-design.md). The gate ([`spine/governed.ts`](./spine/governed.ts)) filters every row-returning result against the canonical store, so most adapters need nothing extra. What an adapter must provide:
+
+| Role | Obligation |
+|---|---|
+| canonical-store | `markingsOf(ids)` — stored markings by entity id; ids it does not hold are omitted. This is the authority every governed read is checked against. |
+| lineage | `applyMarking(ref, markings)` persists a marking at a ref; `effectiveMarkings(ref)` returns markings applied at the ref or anywhere upstream; marking records never appear as edges. |
+| object-index | `setMarkings(type, id, markings)` replaces the markings stored with a row. |
+| any role that answers **aggregates** for principals (object-index `aggregate`, analytics-olap `query`) | declare `capabilities.enforcesMarkings` and, when the query carries `principal`: select and aggregate only rows whose every marking the principal holds, **and** resolve every name in the query as a logical field of a canonical type — never as a storage column or another table. Without the flag the gate refuses the call. |
+
+Every port method is classified `governed`, `open` or `system` in `GOVERNANCE_RULES` ([`spine/governance.ts`](./spine/governance.ts)). A new method must be classified there, or `tsc` and `npm run governance` both fail. Adapters are checked for the row above by `npm run conformance`, and against a low-clearance attacker by `npm run governance`.

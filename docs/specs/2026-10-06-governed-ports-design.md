@@ -99,7 +99,7 @@ class BoundPlatform {
 - The adapters are held in a `#private` field. There is no public `role()`.
 - `GovernedPlatform.role(r)` returns a port that exposes only the methods marked *governed* or
   *open* in §4.3. `Session` is deleted; `platform.as(p).role('canonical-store')` replaces it.
-- `SystemPlatform.role(r)` returns the raw adapter, with three wrapped methods that uphold I1 and
+- `SystemPlatform.role(r)` returns the raw adapter, with five wrapped methods that uphold I1 and
   I2 for every in-process writer (§4.6). Each `system('…')` call names its component, and the
   suite checks the set of call sites in `spine/` against an allow-list.
 - This is protection against accidental bypass and the seam a network API will sit behind. It is
@@ -125,7 +125,7 @@ class BoundPlatform {
 | audit-log | `scan`, `export` | | `append` |
 | lineage | `upstreamOf`, `downstreamOf` | | `record`, `propagateMarking`, `applyMarking` (new), `effectiveMarkings` (new) |
 | policy-identity | | `authenticate`, `authorize`, `members` | |
-| work-queue | | `claim`, `complete`, `fail` | `enqueue` |
+| work-queue | | | `enqueue`, `claim`, `complete`, `fail` |
 
 The table is a typed constant, `GOVERNANCE_RULES`. The suite fails if any method found on a bound
 adapter is missing from it, so a new port method cannot ship unclassified.
@@ -140,13 +140,17 @@ How each governed method filters:
   `facets` and `total` are returned only from an enforcing adapter. `aggregate`: enforcing
   adapter only, otherwise `GovernanceError`.
 - **graph** — `neighbors` and `shortestPath` are computed by the facade as a breadth-first walk
-  of one-hop expansions that never steps onto or through a node the principal cannot see.
+  of one-hop expansions that never steps onto or through a node the principal cannot see. A
+  traversal filter that names a protected field is refused.
 - **vector** — `knn` over-fetches and drops ids that are not visible until `k` remain or the
-  store is exhausted.
+  store is exhausted. An engine filter that names a protected field, as a key or as a value at
+  any depth, is refused.
 - **timeseries-geo** — `range`, `downsample`: empty unless the entity is visible. `within`:
   drops points of entities that are not visible.
-- **analytics-olap** — enforcing adapter only; rejects a dimension, measure or `where` on a field
-  the principal cannot see.
+- **analytics-olap** — enforcing adapter only. For a principal, `from` is a canonical type and
+  every dimension, measure and `where` names a logical field of it; the engine can reach no
+  storage column and no other table. A field the principal cannot see is rejected, and so is a
+  federated table reference.
 - **stream** — withholds envelopes whose `markings` the principal does not hold.
 - **audit-log** — withholds records whose `markings` the principal does not hold.
 - **lineage** — drops edges that touch an entity the principal cannot see or carry markings it
@@ -161,7 +165,8 @@ New capability flag `AdapterCapabilities.enforcesMarkings`. An adapter that sets
 1. persist markings with every row it stores;
 2. accept `principal` on its query object (`SearchQuery` has it; add it to `AggQuery` and
    `OlapQuery`) and, when present, select and aggregate only rows whose markings the principal
-   holds, using the rule of §4.1 exactly;
+   holds, using the rule of §4.1 exactly — and resolve every name in that query as a logical
+   field of a canonical type, never as a storage column or another table;
 3. implement `setMarkings(type, id, markings)`.
 
 In this change: `sqlite` object-index and `sqlite` analytics-olap become enforcing. No other
@@ -178,7 +183,9 @@ adapter needs it, because the facade handles their roles row by row.
 - `KineticExecutor.invoke` loads its target through the governed read as the invoking principal.
   A target the principal cannot see produces the same result as a missing one. The returned
   entity is redacted for that principal, and a failed precondition on a field the principal
-  cannot see reports the field and operator only.
+  cannot see reports the field and operator only. When an action writes a protected field, its
+  audit record and its event carry that field's marking as well as the target's, because both
+  hold the written value.
 
 ### 4.6 Propagation that holds over time
 
@@ -188,16 +195,19 @@ adapter needs it, because the facade handles their roles row by row.
 - **`propagate(platform, ref, markings, actor)`** applies the marking, stamps every downstream
   entity, calls `setMarkings` on every bound enforcing projection, and writes one audit record.
   (Today the demo writes that audit record by hand.)
-- **System-handle wrappers.** Three methods are wrapped; everything else on the system handle is
+- **System-handle wrappers.** Five methods are wrapped; everything else on the system handle is
   the raw adapter.
   - `canonical-store.upsertEntity` stores `given ∪ existing ∪ effectiveMarkings(entity ref)` and
     restamps enforcing projections when the set grew.
-  - `lineage.record` stamps the downstream entity, if it exists, with
-    `effectiveMarkings(upstream)`.
+  - `lineage.record` stamps every existing entity at or below the new edge with the markings it
+    now inherits.
+  - `lineage.applyMarking` and `lineage.propagateMarking` stamp every entity at or below the ref,
+    so marking a ref through the raw lineage port cannot leave entity rows behind.
   - `object-index.index` stores `doc.markings ∪ markingsOf(id)`, so a projector cannot index a
     copy with fewer markings than the canonical row.
 
-  The first two hold I1 for both orders: edge first then entity, or entity first then edge. When
+  The first three hold I1 for every order: edge first, entity first, or a chain recorded
+  bottom-up. When
   no lineage role is bound there is nothing to inherit and the wrappers only enforce I2.
 
 ### 4.7 Field-level security
@@ -282,13 +292,19 @@ must stay green. `typecheck` must pass under `tsc --strict`, which first needs T
 
 - A protected field cannot be searched, filtered or aggregated by anyone, including cleared
   principals.
+- Field-level security covers entity fields. Stream envelope payloads and track-point fields are
+  governed by row markings only: whoever may see the envelope or the entity sees all of it.
 - A blob is readable by whoever holds its handle. Hiding the field that carries the handle is the
   only control.
-- Work-queue payloads carry no markings. Approval prompts must not embed restricted values.
+- The work queue is not available to principals. Jobs carry no markings, so a claim could hand a
+  restricted payload to anyone; until they do, only spine components and operators holding the
+  system handle claim, complete or fail jobs.
 - Registry content (schemas, flows, action definitions) is readable by every principal.
 - Aggregates are unavailable on an engine that does not enforce in-engine.
 - The facade's graph walk and row re-checks cost one canonical lookup per batch of ids; fine for
   the zero-service tier, to be replaced by in-engine enforcement on production engines.
+- The sqlite canonical store has one connection: transactions queue, but a plain write that lands
+  while another caller's transaction is open is rolled back with it if that transaction fails.
 - No information-flow control beyond inheritance at creation: an action that copies a value from
   a restricted entity into a public one is not detected.
 

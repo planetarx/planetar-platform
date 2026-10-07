@@ -95,8 +95,8 @@ Role legend: **R1** canonical-store · **R2** hot-cache · **R3** stream · **R4
 
 | Feature | What it does (1 line) | Owning plane(s) | Required + *enhancing* roles | Spine vs OSS component | Status + backing path |
 |---|---|---|---|---|---|
-| Markings / classifications | Tag data with security markings (UNCLASS/RESTRICTED/handling caveats) | P1 | **R13**, **R10** | spine: marking model in registry; **OSS: OPA** for the decision | designed — marking model designed-only (`README.md` GAPS) |
-| Propagating security | A marking applied at ingest flows along lineage to every derived store/object/surface | P1 | **R12**, **R13**, **R11** | **spine** — propagation rules over lineage; **OSS: marquez** (R12) + **OPA** (R13) | designed — R12 lineage built/designed; *propagation* is the named roadmap gap |
+| Markings / classifications | Tag data with security markings (UNCLASS/RESTRICTED/handling caveats) | P1 | **R13**, **R10** | spine: marking model in registry; **OSS: OPA** for the decision | partial — built in the platform core 2026-10-06 (see `palantir-foundry-governance.md`, Markings); not in the live service |
+| Propagating security | A marking applied at ingest flows along lineage to every derived store/object/surface | P1 | **R12**, **R13**, **R11** | **spine** — propagation rules over lineage; **OSS: marquez** (R12) + **OPA** (R13) | partial — built in the platform core 2026-10-06: lineage-persisted markings inherited by existing and later derivations (`planetar-platform/spine/system.ts`); not in the live service |
 | Purpose-based / need-to-know access | Gate access by declared purpose, not just role (PBAC) | P1, P7 | **R13**, **R11** | **OSS: OPA** policy bundle behind `policy-identity`; spine: adapters are the PEP | designed — OPA gate specified in adapter context (`MarkingResolver`); not enforced yet |
 | Comprehensive audit log | Immutable record of every read/write/export/admin/AI action | P1 | **R11** | spine: audit envelope on the bus; **doibio immutable event-log** is the built donor; OSS: clickhouse sink | built — doibio immutable event-log audit (`~/data/dev/doibio`); ontology emits audit envelopes |
 | Data lineage (Monocle-equivalent) | Trace any value back to its source through every transform | P1 | **R12**, **R10** | spine: lineage emit; **OSS: marquez (OpenLineage)** behind the R12 port | partial — per-field provenance built in ontology; full marquez lineage store planned |
@@ -124,8 +124,8 @@ Total features assessed: **57**.
 | Status | Count | Where it concentrates |
 |---|---|---|
 | **built** | 14 | Spine moat: bus (R3), entity/link model + Object API (P6), identity + kinematic re-ID (P5), action executor (P7), detectors (P2), doibio audit/CSV/Elasticsearch donors |
-| **partial** | 18 | Analyst surfaces (`planetar-ui` map/graph built, signal/imagery/timeline stubbed), graph traversal (on canonical store, no R5 engine yet), object-index search (doibio ES built, opensearch planned), lineage/provenance, multi-tenancy |
-| **designed** | 20 | Graph-engine paths/patterns (R5), geofence/watchlist triggers, media/visual re-ID (R6/R7), markings + propagating security (P1), agent containment, tasking queues |
+| **partial** | 20 | Analyst surfaces (`planetar-ui` map/graph built, signal/imagery/timeline stubbed), graph traversal (on canonical store, no R5 engine yet), object-index search (doibio ES built, opensearch planned), lineage/provenance, multi-tenancy |
+| **designed** | 18 | Graph-engine paths/patterns (R5), geofence/watchlist triggers, media/visual re-ID (R6/R7), agent containment, tasking queues |
 | **planned** | 5 | FMV exploitation, long-running orchestration (Temporal), row-level sharing/FLS, scenarios/branching, BI export |
 
 (One row — live/streaming UI updates — is labelled `built/partial` and counted under **partial** above.)

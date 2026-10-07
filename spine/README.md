@@ -13,7 +13,7 @@ This directory is **Phase 0 of [`../90-ROADMAP.md`](../90-ROADMAP.md)**: the aut
 - **Spine code imports only `ports.ts` + `model.ts`.** Never an engine driver. (Adapters in `40-ADAPTERS/` import the ports and implement them.)
 - **A binding is checkable.** `satisfies(role, adapter.capabilities)` is a pure function; the manifest compiler (Phase 1) calls it per role, so an under-provisioned client is a *compile error*, not a runtime incident.
 - **Federated/external engines are first-class.** `AdapterCapabilities.external` lets R9 bind BigQuery/Snowflake query-in-place without claiming rebuildable-from-stream.
-- **Governance is woven in, not bolted on.** Every `AdapterContext` carries a `MarkingResolver`; adapters are Policy Enforcement Points. The `Lineage.propagateMarking` method is the seam for the roadmap's clone-resistant propagating-security (Phase 3).
+- **Governance is woven in, not bolted on.** `BoundPlatform` keeps its adapters private: a caller takes `platform.as(principal)` (governed ports, [`governed.ts`](./governed.ts)) or `platform.system(component)` (raw ports with the marking invariants, [`system.ts`](./system.ts)). Every port method is classified in `GOVERNANCE_RULES` ([`governance.ts`](./governance.ts)); markings applied at a lineage ref are inherited by everything derived from it.
 
 ## Status
 

@@ -6,7 +6,7 @@
 npm run boot:edge          # client 1: maritime/defence edge  → 9/9 checks
 npm run boot:enterprise    # client 2: generic enterprise CRM → 13/13 checks
 npm run conformance        # one suite, every adapter         → 14/14 conformant
-npm run governance         # Phase 3: propagating security    → 8/8 checks
+npm run governance         # Phase 3: governed ports          → 64/64 checks
 npm run automation         # Phase 4: declarative flows       → 8/8 checks
 ```
 
@@ -19,14 +19,16 @@ npm run automation         # Phase 4: declarative flows       → 8/8 checks
 - The approval step parks a **durable work item** (R14) an omni-channel console can claim; an analyst without the `supervisor` role is denied (and audited); the supervisor's approval runs `planetar:ConfirmDarkVessel` **as the approver**.
 - Re-flagging a suspect vessel is rejected by the kinetic precondition guard; the audit trail shows the whole chain (flow writes, supervisor write, denied attempt).
 
-## Propagating security ([`governance.ts`](./governance.ts), Phase 3)
+## Governed ports ([`governance.ts`](./governance.ts), Phase 3)
 
-`npm run governance` proves the hardest-to-clone part of the moat: **security defined once at a source propagates along lineage**, and two principals get different governed views of the *same* store.
+`npm run governance` runs the adversarial suite ([`spine/governance-conformance.ts`](../spine/governance-conformance.ts)): it binds every data role, plants public, restricted and derived entities, and attacks each role as a principal cleared only for `UNCLASS`. The client passes when that principal can never observe the restricted rows. It runs twice: against a client with every data role bound, and against one that binds only the five roles kinetic writes need.
 
-- **FLS redaction** — a low-clearance principal sees vessel *Alpha* but its `owner` field is redacted; a high-clearance principal sees `owner`.
-- **Propagation** — vessel *Bravo* (initially UNCLASS) derives from a classified feed; applying `OPS-RESTRICTED` **once at the source** flows along the lineage closure and re-stamps *Bravo*.
-- **Restricted view** — after propagation, the low principal can no longer see *Bravo* (row-level filter); the high principal still can.
-- **Governed lists + audit** — `low.listEntities` returns 1 row (owner redacted), `high.listEntities` returns 2; the propagation is captured as an immutable audit record.
+- **One gate** — callers take `platform.as(principal)` (filtered reads, no data writes) or `platform.system(component)` (spine internals, seeding). There is no raw `role()`.
+- **No leak, per role** — ids, counts, graph neighbours and paths, nearest neighbours, tracks, stream envelopes, audit records and lineage edges of a restricted row are withheld; a high-clearance principal sees all of them.
+- **Inheritance that holds over time** — a marking applied **once at a source** restricts what was already derived from it and what is derived later, in either write order; markings never shrink.
+- **Writes** — entities are created and changed only through the action gate; a restricted target looks like a missing one.
+- **Field-level security** — the field map lives in the manifest (`governance.fls`); a protected field is redacted, is kept out of shared projections, and cannot be used to filter, sort or aggregate.
+- **Structure** — every port method is classified governed / open / system, and the suite fails if one is not.
 
 The policy engine is in-process ([`MarkingPolicy`](../spine/governance.ts)); the **production swap is Keycloak (authn) + OPA (Rego PDP)** behind the same `PolicyIdentity` / `MarkingResolver` ports — no spine change.
 
@@ -97,4 +99,4 @@ flowchart LR
 - The edge `stream` binds the **`file`** engine (durable WAL file, zero-service). The real **`broker`** adapter (TCP, BE-length / LE-zmesg framing) is now **written and codec-verified** in [`../adapters/broker/stream.ts`](../adapters/broker/stream.ts); a live end-to-end run needs the broker process (which this session does not own), so the boots use `file`.
 - **Markings can't ride the current zmesg header** — `zmesg.h` v1 has no markings field (only a `flags` byte). The `file` engine preserves markings (JSON); the `broker` codec drops them. So governance markings need a zmesg v2 field (or must travel inside the canonical payload). This is the concrete answer to the Phase 0 "verify markings placement" item.
 - Production engines (postgres multiplex, redis, opensearch, falkordb, minio, kafka, spanner, clickhouse, qdrant, pgvector) remain **sample code** in [`../40-ADAPTERS/`](../40-ADAPTERS/); the runnable repo stays zero-dependency. The zero-service engines (sqlite/file/fs/memory/broker-over-node:net) prove the mechanism; production engines drop in behind the same ports once a deploy provides the services + drivers.
-- Governance is edge-permissive (`PERMISSIVE_MARKING` + `internal` policy). Real propagating-security (Keycloak+OPA, marking propagation enforced at every PEP) is Phase 3.
+- Governance decisions are made in-process (`MarkingPolicy` + the `internal` policy engine) and enforced on every role by the gate. Binding Keycloak + OPA behind the same ports is still open.
