@@ -3,7 +3,10 @@
 // binder skeleton. Phase 0/1 of 90-ROADMAP.md. An engine may bind a role only if
 // its declared AdapterCapabilities SATISFY the role contract here.
 
-import type { RoleId, AdapterCapabilities, Adapter, PortByRole, AdapterContext, EngineName, ResolvedBinding, Logger, MarkingResolver } from './ports.ts';
+import type { RoleId, AdapterCapabilities, Adapter, PortByRole, AdapterContext, EngineName, ResolvedBinding, Logger, MarkingResolver, Principal } from './ports.ts';
+import { MarkingPolicy } from './governance.ts';
+import { GovernedPlatform } from './governed.ts';
+import { SystemPlatform } from './system.ts';
 
 // ---------------------------------------------------------------------------
 // What each role requires. The compiler rejects an engine that can't meet it.
@@ -110,17 +113,37 @@ export async function bindRole(
   return adapter;
 }
 
-/** What the spine receives: ports by role, engine-agnostic. */
+/** How the platform governs access (compiled from the manifest's `governance` block). */
+export interface GovernanceConfig {
+  policy: MarkingPolicy;
+  /** which governed reads are audited: only those touching marked rows, all, or none */
+  auditReads: 'marked' | 'all' | 'none';
+  nowNs: () => bigint;
+}
+
+/** What the spine receives. The adapters are private: a caller takes either the governed view
+ *  of a principal, or the system handle (docs/specs/2026-10-06-governed-ports-design.md §4.2). */
 export class BoundPlatform {
-  private readonly bound: Partial<Record<RoleId, Adapter>>;
-  constructor(bound: Partial<Record<RoleId, Adapter>>) { this.bound = bound; }
-  role<R extends RoleId>(r: R): PortByRole[R] {
-    const a = this.bound[r];
-    if (!a) throw new ManifestError(`role ${r} is not bound in this client`);
-    return a as PortByRole[R];
+  #bound: Partial<Record<RoleId, Adapter>>;
+  #gov: GovernanceConfig;
+  constructor(bound: Partial<Record<RoleId, Adapter>>, gov: Partial<GovernanceConfig> = {}) {
+    this.#bound = bound;
+    this.#gov = {
+      policy: gov.policy ?? new MarkingPolicy(),
+      auditReads: gov.auditReads ?? 'marked',
+      nowNs: gov.nowNs ?? (() => BigInt(Date.now()) * 1_000_000n),
+    };
   }
-  has(r: RoleId): boolean { return !!this.bound[r]; }
-  async closeAll(): Promise<void> { await Promise.all(Object.values(this.bound).map((a) => a!.close())); }
+  /** Governed ports for one principal: reads are filtered and redacted; there are no data writes. */
+  as(principal: Principal): GovernedPlatform { return new GovernedPlatform(this.#bound, principal, this.#gov); }
+  /** Raw ports for spine internals, ingest and seeding. `component` names the caller. */
+  system(component: string): SystemPlatform { return new SystemPlatform(this.#bound, component); }
+  /** @deprecated use as(principal) or system(component); removed once every caller has moved. */
+  role<R extends RoleId>(r: R): PortByRole[R] { return this.system('legacy').role(r); }
+  get policy(): MarkingPolicy { return this.#gov.policy; }
+  nowNs(): bigint { return this.#gov.nowNs(); }
+  has(r: RoleId): boolean { return !!this.#bound[r]; }
+  async closeAll(): Promise<void> { await Promise.all(Object.values(this.#bound).map((a) => a!.close())); }
 }
 
 export type { Logger, MarkingResolver };

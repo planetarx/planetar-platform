@@ -8,6 +8,7 @@ import type { RoleId, EngineName, Adapter, AdapterContext, Logger, MarkingResolv
 import type { TypeName, FieldName, Json } from './model.ts';
 import { requiredRoles, type CapabilityKey } from './capabilities.ts';
 import { bindRole, BoundPlatform, ManifestError, DEFAULTABLE_ROLES, type SharedResources, type RoleBinding } from './contracts.ts';
+import { MarkingPolicy, type FlsMap } from './governance.ts';
 
 export interface ClientManifest {
   schema_version: string;
@@ -16,7 +17,13 @@ export interface ClientManifest {
   roles: Partial<Record<RoleId, { engine: EngineName; config?: Record<string, Json> }>>;
   ingest?: { kind: string; name: string; [k: string]: Json | undefined }[];
   surfaces?: { kind: string; name?: string; [k: string]: Json | undefined }[];
-  governance?: { markings?: { id: string; default?: boolean }[]; propagate?: string; audit?: Json };
+  governance?: {
+    markings?: { id: string; default?: boolean }[];
+    propagate?: string;
+    /** field-level security: type → field → marking needed to see it */
+    fls?: FlsMap;
+    audit?: { reads?: 'marked' | 'all' | 'none' };
+  };
   deploy?: { target: string; [k: string]: Json };
 }
 
@@ -38,7 +45,8 @@ export function consoleLogger(prefix = 'planetar'): Logger {
   };
 }
 
-/** Edge default: allow-all visibility, no FLS redaction. Real governance comes in Phase 3 (R13). */
+/** Allow-all resolver for the per-adapter conformance harness only. A compiled platform never
+ *  uses it: compile() builds a MarkingPolicy from the manifest's governance block. */
 export const PERMISSIVE_MARKING: MarkingResolver = {
   visible: (_p: Principal, _m: MarkingId[]) => true,
   redactFields: (_p: Principal, _t: TypeName, f: Record<FieldName, Json>) => f,
@@ -53,10 +61,11 @@ export function makeShared(): SharedResources {
 
 export async function compile(
   manifest: ClientManifest,
-  opts: { logger?: Logger; marking?: MarkingResolver; shared?: SharedResources } = {},
+  opts: { logger?: Logger; policy?: MarkingPolicy; shared?: SharedResources; nowNs?: () => bigint } = {},
 ): Promise<CompileResult> {
   const logger = opts.logger ?? consoleLogger(manifest.client.id);
-  const marking = opts.marking ?? PERMISSIVE_MARKING;
+  const policy = opts.policy ?? new MarkingPolicy(manifest.governance?.fls ?? {});
+  const marking: MarkingResolver = policy;
   const shared = opts.shared ?? makeShared();
   const warnings: string[] = [];
 
@@ -95,7 +104,7 @@ export async function compile(
   }
 
   return {
-    platform: new BoundPlatform(bound),
+    platform: new BoundPlatform(bound, { policy, auditReads: manifest.governance?.audit?.reads, nowNs: opts.nowNs }),
     required: [...required],
     bound: bindings.map((b) => b.role),
     warnings,
