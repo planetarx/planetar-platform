@@ -41,10 +41,11 @@ async function main() {
   rmSync('./.data/auto', { recursive: true, force: true });
   console.log('\n=== Phase 4: declarative automation (flows as data) ===');
   const { platform } = await compile(MANIFEST);
-  const store = platform.role('canonical-store');
-  const stream = platform.role('stream');
-  const audit = platform.role('audit-log');
-  const work = platform.role('work-queue');
+  const sys = platform.system('automation-demo');   // seeding + assertions read the raw roles
+  const store = sys.role('canonical-store');
+  const stream = sys.role('stream');
+  const audit = sys.role('audit-log');
+  const work = sys.role('work-queue');
 
   // --- kinetic Action Types (P7): the only write path flows may use ---
   const kinetic = new KineticExecutor(platform);
@@ -142,16 +143,17 @@ async function main() {
   await check('audit trail captures the whole chain (case, flag, approval, confirm)', async () => {
     let flowWrites = 0, supervisorWrites = 0, denied = 0;
     for await (const rec of audit.scan({})) {
-      if (rec.actor.startsWith('flow:')) flowWrites++;
-      if (rec.actor === SUPERVISOR.id) supervisorWrites++;
-      if (rec.actor === ANALYST.id) denied++;
+      // the flow acts as the automation user through the action gate; it parks approvals as itself
+      if (rec.action === 'write' && (rec.actor === AUTOMATION.id || rec.actor.startsWith('flow:'))) flowWrites++;
+      if (rec.action === 'write' && rec.actor === SUPERVISOR.id) supervisorWrites++;
+      if (rec.action === 'admin' && rec.actor === ANALYST.id) denied++;
     }
     if (!flowWrites || !supervisorWrites || !denied) throw new Error(`flow=${flowWrites} supervisor=${supervisorWrites} analystDenied=${denied}`);
     return `flow writes=${flowWrites}, supervisor writes=${supervisorWrites}, denied attempt logged=${denied}`;
   });
 
   await check('flow + action types are registered data (R10), not code', async () => {
-    const reg = platform.role('registry');
+    const reg = sys.role('registry');
     const flowDef = await reg.get('flow:dark-vessel-response');
     const actDef = await reg.get('planetar:FlagVessel');
     if (!flowDef || !actDef) throw new Error('definitions missing from registry');

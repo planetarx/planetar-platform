@@ -30,23 +30,26 @@ async function main() {
 
   console.log('\n=== Topology ===\n' + topology);
 
+  // this script is an operator's smoke test of the raw roles, so it takes the system handle
+  const sys = platform.system('boot');
+
   // --- health of every bound role ---
   console.log('\n=== Health ===');
   for (const r of bound) {
-    const h = await platform.role(r).health();
+    const h = await sys.role(r).health();
     console.log(`  ${h.ok ? '✅' : '❌'} ${r} (p99≈${h.p99Ms ?? '?'}ms)`);
   }
 
   // --- end-to-end smoke through the spine ports (engine-agnostic) ---
-  const store = platform.role('canonical-store');
-  const index = platform.role('object-index');
-  const stream = platform.role('stream');
-  const work = platform.role('work-queue');
-  const audit = platform.role('audit-log');
-  const registry = platform.role('registry');
-  const blob = platform.role('blob-cas');
-  const lineage = platform.role('lineage');
-  const policy = platform.role('policy-identity');
+  const store = sys.role('canonical-store');
+  const index = sys.role('object-index');
+  const stream = sys.role('stream');
+  const work = sys.role('work-queue');
+  const audit = sys.role('audit-log');
+  const registry = sys.role('registry');
+  const blob = sys.role('blob-cas');
+  const lineage = sys.role('lineage');
+  const policy = sys.role('policy-identity');
 
   const vid = randomUUID();
   const vessel: CanonicalEntity = {
@@ -127,7 +130,7 @@ async function main() {
 
   // --- optional roles: exercised only if this client's footprint bound them (role selectivity) ---
   if (platform.has('graph')) await check('graph.edges + neighbors + shortestPath', async () => {
-    const g = platform.role('graph');
+    const g = sys.role('graph');
     await g.upsertEdge({ from: vid, to: 'org-acme', linkType: 'crm:works_at' });
     await g.upsertEdge({ from: 'org-acme', to: 'org-parent', linkType: 'crm:subsidiary_of' });
     const nb = await g.neighbors(vid, { maxHops: 2, direction: 'out' });
@@ -136,7 +139,7 @@ async function main() {
     return `${nb.nodes.length} nodes in 2-hop, shortest path = ${sp?.length}`;
   });
   if (platform.has('vector')) await check('vector.upsert + knn (re-ID / RAG)', async () => {
-    const v = platform.role('vector');
+    const v = sys.role('vector');
     await v.upsert(vid, new Float32Array([1, 0, 0]), { kind: 'vessel-photo' });
     await v.upsert('other', new Float32Array([0, 1, 0]), {});
     const top = await v.knn(new Float32Array([0.9, 0.1, 0]), 1);
@@ -144,14 +147,14 @@ async function main() {
     return `nearest = ${top[0].id.slice(0, 8)}… (cos ${top[0].score.toFixed(3)})`;
   });
   if (platform.has('hot-cache')) await check('hot-cache.set + incr (presence/counters)', async () => {
-    const c = platform.role('hot-cache');
+    const c = sys.role('hot-cache');
     await c.set(`presence:${vid}`, 'online', 60);
     const n = await c.incr('rate:api', 1);
     if ((await c.get(`presence:${vid}`)) !== 'online' || n !== 1) throw new Error('cache wrong');
     return `presence cached, rate counter = ${n}`;
   });
   if (platform.has('timeseries-geo')) await check('timeseries-geo.append + range', async () => {
-    const ts = platform.role('timeseries-geo');
+    const ts = sys.role('timeseries-geo');
     const now = nowNs();
     await ts.append({ entityId: vid, ts: now, lat: 48.42, lon: -123.37, fields: { speed_kn: 12 } });
     const r = await ts.range(vid, { fromNs: now - 1_000_000_000n, toNs: now + 1_000_000_000n });
@@ -159,7 +162,7 @@ async function main() {
     return `${r.length} track point(s)`;
   });
   if (platform.has('analytics-olap')) await check('analytics-olap.query (report roll-up)', async () => {
-    const olap = platform.role('analytics-olap');
+    const olap = sys.role('analytics-olap');
     const res = await olap.query({ from: 'entity', dimensions: ['type'], measures: [{ fn: 'count', as: 'n' }], orderBy: [{ key: 'n', dir: 'desc' }] });
     if (!res.rows.length) throw new Error('no rows');
     return `${res.rows.length} group(s); top: ${JSON.stringify(res.rows[0])}`;

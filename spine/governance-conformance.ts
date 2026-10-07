@@ -4,10 +4,11 @@
 // restricted rows — not their ids, counts, neighbours, paths, tracks, envelopes or audit trail —
 // while HIGH observes all of it. Engine-agnostic: it runs against whatever the manifest bound.
 // Design: docs/specs/2026-10-06-governed-ports-design.md §6.
+import { readdirSync, readFileSync } from 'node:fs';
 import type { BoundPlatform } from './contracts.ts';
-import type { Principal, AuditRecord, Envelope } from './ports.ts';
+import type { Principal, AuditRecord, Envelope, RoleId } from './ports.ts';
 import type { CanonicalEntity, MarkingId } from './model.ts';
-import { GovernanceError, entityRef, indexDocFor, propagate } from './governance.ts';
+import { GovernanceError, GOVERNANCE_RULES, entityRef, indexDocFor, propagate } from './governance.ts';
 import { KineticExecutor } from './kinetic.ts';
 import { FlowEngine, type FlowRun } from './flows.ts';
 
@@ -25,6 +26,17 @@ export const LOW: Principal = { id: 'gov-low', roles: ['operator'], clearances: 
 export const HIGH: Principal = { id: 'gov-high', roles: ['operator'], clearances: [SUITE.PUBLIC, SUITE.RESTRICTED] };
 /** the principal flows run as in the suite: cleared for everything it will be asked to create */
 export const AUTO: Principal = { id: 'gov-automation', roles: ['automation'], clearances: [SUITE.PUBLIC, SUITE.RESTRICTED] };
+
+/** Private helpers that sit on adapter prototypes (TypeScript `private` is not private at run
+ *  time). Any other method on a bound adapter must be classified in GOVERNANCE_RULES. */
+export const ADAPTER_HELPERS: Partial<Record<RoleId, string[]>> = {
+  'stream': ['framePrefix'], 'blob-cas': ['pathFor'], 'lineage': ['all', 'walk'], 'hot-cache': ['live'], 'vector': ['flush'], 'timeseries-geo': ['toPoints'],
+  'analytics-olap': ['tableQuery', 'typedQuery'],
+};
+const LIFECYCLE = ['constructor', 'init', 'health', 'close'];
+
+/** The only spine components that may take the raw-port handle. */
+export const SYSTEM_COMPONENTS = ['flows', 'governance-suite', 'governance.propagate', 'kinetic'];
 
 // ids sort as P1 < R < P2 so a withheld row sits between two visible ones (exercises page refill)
 const P1 = 'gov-1-pub', R = 'gov-2-sec', P2 = 'gov-3-pub', D = 'gov-4-derived', L = 'gov-5-late', E = 'gov-6-early', B = 'gov-7-bottomup';
@@ -429,8 +441,30 @@ export async function governanceSuite(platform: BoundPlatform): Promise<Check[]>
   }
 
   // ---------------------------------------------------------------- structure
+  await t('structure: the platform has no raw role() accessor', async () => {
+    if (typeof (platform as unknown as Record<string, unknown>).role !== 'undefined') throw new Error('BoundPlatform.role() still exists: callers can bypass the gate');
+    return 'ok';
+  });
+  await t('structure: every method on a bound adapter is classified', async () => {
+    let n = 0;
+    for (const role of Object.keys(GOVERNANCE_RULES) as RoleId[]) {
+      if (!platform.has(role)) continue;
+      const known = new Set([...LIFECYCLE, ...Object.keys(GOVERNANCE_RULES[role]), ...(ADAPTER_HELPERS[role] ?? [])]);
+      const unknown = Object.getOwnPropertyNames(Object.getPrototypeOf(sys.role(role))).filter((m) => !known.has(m));
+      if (unknown.length) throw new Error(`${role}: ${unknown.join(', ')} — classify in GOVERNANCE_RULES (or list as a private helper)`);
+      n++;
+    }
+    return `${n} adapter(s)`;
+  });
+  await t('structure: only the listed spine components take the system handle', async () => {
+    const dir = new URL('.', import.meta.url);
+    const found = new Set<string>();
+    for (const f of readdirSync(dir)) if (f.endsWith('.ts')) for (const m of readFileSync(new URL(f, dir), 'utf8').matchAll(/\.system\('([^']+)'\)/g)) found.add(m[1]);
+    const got = [...found].sort().join(', ');
+    if (got !== SYSTEM_COMPONENTS.join(', ')) throw new Error(`spine takes system() as: ${got}`);
+    return got;
+  });
   await t('structure: a governed port carries no system method', async () => {
-    const { GOVERNANCE_RULES } = await import('./governance.ts');
     let n = 0;
     for (const [role, rules] of Object.entries(GOVERNANCE_RULES) as [keyof typeof GOVERNANCE_RULES, Record<string, string>][]) {
       if (!platform.has(role)) continue;
