@@ -23,9 +23,9 @@ This slice maps **Salesforce's CRM core** — Sales Cloud (lead-to-cash), Servic
 
 | Feature | What it does (1 line) | Owning plane(s) | Required (bold) + enhancing (italic) roles | Spine vs OSS component | Status + backing path |
 |---|---|---|---|---|---|
-| Leads | Capture unqualified prospects as records | P4, P6 | **R1**, **R10**, *R4* | spine: ontology object type; OSS: postgres | built — `doibio` `leads-app/` + lead schema |
+| Leads | Capture unqualified prospects as records | P4, P6 | **R1**, **R10**, *R4* | spine: ontology object type; OSS: postgres | donor — `doibio` `leads-app/` + lead schema |
 | Lead conversion | Convert a Lead into Account + Contact + Opportunity atomically | P7 | **R10**, **R1**, **R11**, **R3** | spine: Action Type (multi-effect, audited, reversible); OSS: none | partial — Action Type executor exists (`planetar-ontology/src/actions/`); ConvertLead action designed |
-| Accounts & Contacts | Companies + people with hierarchy | P4, P6 | **R1**, **R10**, *R5* | spine: ontology objects + link types; OSS: postgres + falkordb (hierarchy) | built — `doibio` `contact-app/` + party schema |
+| Accounts & Contacts | Companies + people with hierarchy | P4, P6 | **R1**, **R10**, *R5* | spine: ontology objects + link types; OSS: postgres + falkordb (hierarchy) | donor — `doibio` `contact-app/` + party schema |
 | Opportunities & stages | Deals progressing through a configurable pipeline | P4, P6 | **R1**, **R10**, *R9* | spine: ontology object + stage as picklist; OSS: postgres | partial — object model donor in `doibio`; opportunity-specific stage automation designed |
 | Opportunity pipeline / forecasting | Roll up open deals by stage/owner/period for forecast | P4, P6, P9 | **R1**, **R9**, *R4* | spine: objects+actions; **OSS: clickhouse / duckdb** for roll-ups | designed — see [`11`](../11-CAPABILITY-ROLE-MAP.md) forecasting row; OLAP role unbound in built clients |
 | Products & price books | Catalog of sellable items with per-book pricing | P4, P6 | **R1**, **R10** | spine: ontology objects; OSS: postgres | designed — schema pattern proven in doibio; not instantiated |
@@ -78,7 +78,7 @@ This slice maps **Salesforce's CRM core** — Sales Cloud (lead-to-cash), Servic
 | Apex triggers / classes (pro-code) | Imperative server-side logic on DML events | P7 | **R10**, **R1**, **R3**, **R11** | spine: Action Type executor (validated, audited, reversible) — the only write path; OSS: none | built — `planetar-ontology` Action Types (`src/actions/`); the canonical replacement for triggers |
 | Platform Events / Change Data Capture | Publish/subscribe to record-change events | P3 | **R3** | spine: `zmesg` envelope + `planetar-broker` (every state change is an envelope); OSS: kafka alt | built — `planetar-broker` (SHM/TCP/UDP/WAL), `zmesg` envelope |
 | Pub/Sub API | gRPC streaming of platform events to external consumers | P3, P8 | **R3** | spine: broker TCP/sub fan-out; OSS: kafka consumer groups | built (TCP/WS bridge) — `planetar-broker` ports 12001/12002; gRPC facade designed |
-| Outbound messages / webhooks | Fire an HTTP callout on a record/automation event | P2, P7 | **R3**, **R14** | spine: action effect → webhook dispatch; OSS: postgres queue (retry) | built — `doibio` `src/lib/webhooks.ts` (the only automation in doibio) |
+| Outbound messages / webhooks | Fire an HTTP callout on a record/automation event | P2, P7 | **R3**, **R14** | spine: action effect → webhook dispatch; OSS: postgres queue (retry) | donor — `doibio` `src/lib/webhooks.ts` (the only automation in doibio) |
 | Scheduled / async jobs (batch Apex) | Run deferred or recurring bulk work | P7 | **R14**, **R1** | spine: WorkQueue port; **OSS: temporal** / postgres-cron | designed — port defined; scheduler not coded |
 | Einstein / Agentforce agents | RAG + tool-use AI agents acting on records | P7, P8 | **R7**, **R6**, **R10**, *R5* | spine: kinetic containment (agents write only via Action Types); OSS: pgvector + LLM gateway | designed — containment via P7; agent studio not built; doibio Cohere chat is read-only precursor |
 
@@ -93,7 +93,7 @@ This slice maps **Salesforce's CRM core** — Sales Cloud (lead-to-cash), Servic
 | Global / Einstein Search | Unified full-text search across objects | P6, P8 | **R4**, **R1**, *R7* | spine: Object API; **OSS: opensearch** (+ pgvector for semantic) | built — `doibio` Elasticsearch (`es-app/`); ontology `object-index` port |
 | Duplicate management / matching | Detect + merge duplicate records on rules | P5 | **R1**, **R4** (blocking), **R12**, *R7* | **spine: identity-resolution engine** (the moat); OSS: opensearch (blocking), pgvector (fuzzy) | built — `doibio/src/lib/identity-resolution.ts` (630 LOC) → ported into `planetar-ontology` (`src/resolve/`) |
 | Data Cloud / unification & golden record | Resolve cross-source profiles into a unified record | P5, P4 | **R1**, **R4**, **R12**, *R7* | spine: identity resolution + per-field provenance; OSS: opensearch, pgvector | built (core) / designed (multi-source scale) — `planetar-ontology` per-field provenance + identity res; dark-vessel re-ID is the proven instance |
-| Data import wizard / Data Loader | Bulk CSV import/export of records | P2, P4 | **R1**, **R3**, *R14* | spine: import→envelope→canonical projection; OSS: postgres | built — `doibio/src/lib/import-export.ts` (CSV import/export) |
+| Data import wizard / Data Loader | Bulk CSV import/export of records | P2, P4 | **R1**, **R3**, *R14* | spine: import→envelope→canonical projection; OSS: postgres | donor — `doibio/src/lib/import-export.ts` (CSV import/export) |
 | External objects / OData (Connect) | Surface external data as live virtual records | P9, P6 | **R9** (federated), **R1** | OSS: **bigquery/snowflake/databricks** query-in-place; spine: virtual object type | planned — zero-copy federation row in [`11`](../11-CAPABILITY-ROLE-MAP.md); not coded |
 | MuleSoft / connectors (integration) | 200+ prebuilt source/target connectors | P2 | **R3**, *R6* | spine: detector SDK; **OSS: Airbyte / Singer / Meltano** | designed — connectors-at-breadth deferred (per GAPS); broker ingest SDK exists |
 | REST / SOAP / Bulk / GraphQL APIs | Programmatic record access for integrators | P6, P8 | **R1**, **R10**, *R4* | spine: ontology Object API (REST + WS, OSDK-equivalent); OSS: Hasura/GraphQL gen | built — `planetar-ontology` Object API REST+WS (`src/api/`); `doibio` ~120 REST routes |
@@ -131,15 +131,16 @@ This slice maps **Salesforce's CRM core** — Sales Cloud (lead-to-cash), Servic
 
 ## Coverage summary
 
-Counts are by the dominant status per feature row (split statuses counted once, toward the lower/earlier stage).
+Counts are by the first status word in each feature row.
 
 | Status | Count | Notes |
 |---|---|---|
-| **built** | 18 | Object API + objects, Action Types, broker/Platform Events, webhooks, CSV import/export, identity resolution / duplicate mgmt, Elasticsearch search, list views, OSDK/codegen, maplibre map, event-log audit, per-field provenance, streaming ingestion, REST APIs |
-| **partial** | 17 | Cases/Opportunities object donors, knowledge search, email/chat ingest, case feed, reports/dashboards (canned only), Data Cloud unification at scale, console/shell, login/Keycloak, Shield event monitoring, field/page builders |
-| **designed** | 19 | Validation-rule UI, sandboxes, lead conversion action, territory mgmt, omni-channel/queues, SLA-adjacent, Flow engine, approvals, agents, FLS/OWD/sharing, markings + propagation, federation |
-| **planned** | 13 | CPQ, campaigns, sales cadences, CTI, service analytics, full Field Service scheduling/optimization/dispatch, CRM Analytics, encryption, external objects |
-| **Total features** | **67** | across 8 areas |
+| **built** | 17 | Object API + objects, Action Types, broker/Platform Events, webhooks, CSV import/export, identity resolution / duplicate mgmt, Elasticsearch search, list views, OSDK/codegen, maplibre map, event-log audit, per-field provenance, streaming ingestion, REST APIs |
+| **donor** | 4 | Exists only in `doibio`: pattern donor, no code reuse in planetar |
+| **partial** | 21 | Cases/Opportunities object donors, knowledge search, email/chat ingest, case feed, reports/dashboards (canned only), Data Cloud unification at scale, console/shell, login/Keycloak, Shield event monitoring, field/page builders |
+| **designed** | 25 | Validation-rule UI, sandboxes, lead conversion action, territory mgmt, omni-channel/queues, SLA-adjacent, Flow engine, approvals, agents, FLS/OWD/sharing, markings + propagation, federation |
+| **planned** | 14 | CPQ, campaigns, sales cadences, CTI, service analytics, full Field Service scheduling/optimization/dispatch, CRM Analytics, encryption, external objects |
+| **Total features** | **81** | across 8 areas |
 
 The "spine half" of Salesforce — metadata-driven objects, the kinetic write path (Apex/Flow substrate), Platform Events, identity resolution, audit, and the typed Object/OSDK API — is **largely built** in `planetar-ontology` + `doibio` + `planetar-broker`. The "breadth half" — visual Flow, sharing/FLS, report builder, Omni-Channel, CPQ, Field Service scheduling — is **designed/planned** and binds to named OSS (temporal, OPA, Keycloak, clickhouse, Superset, Airbyte, opensearch, pgvector).
 

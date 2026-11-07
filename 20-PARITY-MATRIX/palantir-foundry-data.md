@@ -22,7 +22,7 @@ Getting external bytes to the edge and onto the bus as envelopes. Foundry's valu
 | RF / SIGINT connector lane | RF emitter feed normalized to envelopes for fusion | P2, P3 | **R3**, *R8* | Spine: detector SDK (same shape as the 4 built lanes) | planned — lane registered in canonical model, no service; per MEMORY `reference_ontology_topic_gap` |
 | Virtual / federated tables (query-in-place, no copy) | Query Snowflake/BigQuery/Databricks in place without ingest | P2, P9-analytics | **R9** (federated), *R1* | **OSS: bigquery / snowflake / databricks** behind the R9 analytics adapter (federated mode) | designed — R9 federated binding specified ([`10` R9](../10-STORAGE-ROLES.md)); no adapter coded |
 | Webhook / push connector | External system POSTs events; platform emits envelopes | P2, P3 | **R3**, *R14* | Spine: webhook receiver → envelope; doibio has a working webhook path | partial — doibio webhooks (the only automation channel there) `~/data/dev/doibio`; not generalized into a connector |
-| CSV / flat-file import (bulk upload) | One-shot upload of tabular data into objects | P2, P4 | **R1**, **R10**, *R3* | **Spine: doibio CSV import/export** maps directly; rows → canonical observations | built — doibio CSV import/export `~/data/dev/doibio` (event-sourced into 37-table SQLite) |
+| CSV / flat-file import (bulk upload) | One-shot upload of tabular data into objects | P2, P4 | **R1**, **R10**, *R3* | **Spine: doibio CSV import/export** maps directly; rows → canonical observations | donor — doibio CSV import/export `~/data/dev/doibio` (event-sourced into 37-table SQLite) |
 | Connection health / sync monitoring | Track connector last-run, lag, failure, throughput | P0, P1 | **R11**, *R14*, *R2* | Spine: connector heartbeats as audit/control envelopes; OSS: Grafana on the R11 sink | designed — audit envelope shape exists; per-connector health dashboard not built |
 | Agent-based / on-prem connector runtime | A small agent runs inside a client network and tunnels back | P0, P2 | **R3**, **R13** | OSS: deferred (Foundry "connection agent" analogue); broker can run at the edge and bridge to cloud R3 | planned — connectors-at-breadth deferred (brief GAPS); edge-broker bridge designed |
 
@@ -81,10 +81,11 @@ Counts across all three areas (40 features total):
 
 | Status | Count | Notes |
 |---|---|---|
-| **built** | 13 | Streaming ingestion (broker+zmesg), 4 detectors, CSV import, dataset-as-immutable-transaction, schema registry slice, streaming-transform pattern, incremental replay, object types, link types, Action Types, Object API/OSDK, schema versioning slice, identity resolution, per-field provenance, dark-vessel re-ID — all backed by named repos (`planetar-broker`, `zmesg`, `planetar-ontology`, `planetar-registry`, doibio). *(Several rows are jointly "built" mechanisms; the headline 13 are the cleanly-backed ones.)* |
+| **built** | 14 | Streaming ingestion (broker+zmesg), 4 detectors, CSV import, dataset-as-immutable-transaction, schema registry slice, streaming-transform pattern, incremental replay, object types, link types, Action Types, Object API/OSDK, schema versioning slice, identity resolution, per-field provenance, dark-vessel re-ID — all backed by named repos (`planetar-broker`, `zmesg`, `planetar-ontology`, `planetar-registry`, doibio). *(Several rows are jointly "built" mechanisms; the headline 13 are the cleanly-backed ones.)* |
+| **donor** | 1 | Exists only in `doibio`: pattern donor, no code reuse in planetar |
 | **partial** | 10 | Source/connection registry, webhook connector, pipeline lineage, Code Repositories (git), object sets, conflict surfacing, Object Explorer search (doibio ES), time-series object properties — a named repo does part, the rest is designed |
 | **designed** | 12 | Batch/JDBC/file connectors, federated tables, connection health, batch transform engine, build scheduling, branching, data-health checks, interfaces, functions, object/row-level security, media references, ontology scenarios — specified in spine docs, no code |
-| **planned** | 5 | RF connector lane, agent-based on-prem connector runtime, no-code Pipeline Builder GUI, (acknowledged but unspecified) |
+| **planned** | 3 | RF connector lane, agent-based on-prem connector runtime, no-code Pipeline Builder GUI, (acknowledged but unspecified) |
 
 The modeling area is the strongest (most "built"); pipelines is the weakest (no GUI, no batch engine wired); data-connection sits in the middle (the streaming/detector edge is built, connector breadth is OSS-deferred).
 

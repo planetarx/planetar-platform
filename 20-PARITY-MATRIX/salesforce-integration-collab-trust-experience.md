@@ -24,7 +24,7 @@ Spine code throughout depends only on the role **adapter interfaces** in [`12-AD
 | Custom detectors / native ingest | Domain source → normalized envelope (the planetar lane pattern) | P2,P3 | **R3** | **Spine** detector framework + envelope emit SDK | **built** — `~/github/planetarx/planetar-ais`, `planetar-sat`, `planetar-eo`, `planetar-acoustic` (RF lane registered, no service) |
 | External Services / Connect (OpenAPI invoke) | Register an OpenAPI/REST schema and invoke it as a typed action | P7 | **R10**, **R1**, **R11**, *R14* | **Spine** — an external call is a kinetic Action Type whose effect is an outbound request; registry holds the OpenAPI schema | **designed** — Action Type executor built (`planetar-ontology` `src/actions/executor.ts`); OpenAPI-import codegen designed |
 | External Objects / OData (zero-copy federation) | Query an external system live, no data copied in | P4,P9 | **R9** (federated engine), **R10** | **OSS: clickhouse / duckdb** federated query, or **bigquery/snowflake** query-in-place behind R9 adapter | **designed** — Data-Cloud-style virtual-tables pattern; no federated adapter wired yet |
-| Outbound Messages / Webhooks | Fire an HTTP callout on a record/event condition | P7 | **R3**, **R14**, *R13* | **Spine** — webhook is an Action triggered off an R3 subscription; R14 holds the retry queue | **built** — doibio `~/data/dev/doibio/src/lib/webhooks.ts` (its only automation primitive) |
+| Outbound Messages / Webhooks | Fire an HTTP callout on a record/event condition | P7 | **R3**, **R14**, *R13* | **Spine** — webhook is an Action triggered off an R3 subscription; R14 holds the retry queue | **donor** — doibio `~/data/dev/doibio/src/lib/webhooks.ts` (its only automation primitive) |
 | Streaming API / PushTopic (legacy query-stream) | Subscribe to a SOQL-defined result set as it changes | P3,P6 | **R3**, **R4** | **Spine** Object API WS over an object-index query subscription (R4); broker fan-out for delivery | **partial** — Object-API WS subscribe built (`planetar-ontology` `src/api/ws.ts`); query-defined topic filter designed |
 | Bulk / Batch data API | High-throughput async insert/update/upsert of large datasets | P2,P7 | **R3**, **R1**, **R14** | **Spine** — bulk load = batched envelopes on R3 with a R14 job tracking the run; CSV ingest reuses import path | **partial** — doibio CSV import `~/data/dev/doibio/src/lib/import-export.ts`; async-job orchestration via R14 designed |
 | API Gateway / rate-limiting / API versioning | Throttle, authenticate, and version the public API surface | P0,P8 | **R2** (counters), **R13**, **R10** | **OSS: Kong / Envoy** (or Keycloak token gate) in front of the Object API; R2 redis for rate-limit counters | **designed** — Object API is versioned (registry-driven); gateway/throttle not deployed |
@@ -90,13 +90,14 @@ Spine code throughout depends only on the role **adapter interfaces** in [`12-AD
 
 ## Coverage summary
 
-Counts by status across all 45 features in this slice:
+Counts by status across all 47 features in this slice:
 
 | Status | Count | Notes |
 |---|---|---|
-| **built** | 7 | Platform Events, CDC, custom detectors, webhooks, Chatter feed, presence/live-channels, Slack-style shell, map surface, tamper-evident audit — all backed by `planetar-broker`, `planetar-ontology`, `planetar-ui`, or `doibio`. (Two rows marked **built/partial** counted under partial below.) |
+| **built** | 10 | Platform Events, CDC, custom detectors, webhooks, Chatter feed, presence/live-channels, Slack-style shell, map surface, tamper-evident audit — all backed by `planetar-broker`, `planetar-ontology`, `planetar-ui`, or `doibio`. (Two rows marked **built/partial** counted under partial below.) |
+| **donor** | 1 | Exists only in `doibio`: pattern donor, no code reuse in planetar |
 | **partial** | 13 | Real backing exists but the Salesforce-equivalent surface is incomplete (e.g. Pub/Sub gRPC façade, @mentions inbox, AI summarization RAG, Shield/Field/Setup audit capture, lineage Marquez sink, Lightning micro-frontends, graph explorer, notification center). |
-| **designed** | 24 | Spec/architecture exists, no implementation — dominated by the **Trust** pillar (encryption, SSO/MFA, OWD/FLS/sharing, propagating security, purpose-based access) and config-driven **Experience** (App Builder, Experience Cloud, CMS, theming, dashboards). |
+| **designed** | 22 | Spec/architecture exists, no implementation — dominated by the **Trust** pillar (encryption, SSO/MFA, OWD/FLS/sharing, propagating security, purpose-based access) and config-driven **Experience** (App Builder, Experience Cloud, CMS, theming, dashboards). |
 | **planned** | 1 | In-app guidance / onboarding — no design yet. |
 
 **Pillar shape:** Integration and Collaboration are mostly built/partial (the bus and feeds are the spine's strengths); Trust and config-driven Experience are mostly designed (the governance plane and the page-builder are the largest remaining work).

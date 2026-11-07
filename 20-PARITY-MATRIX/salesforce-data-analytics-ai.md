@@ -17,7 +17,7 @@ Role IDs (**R1**..**R14**) and plane IDs (P0..P8) are used verbatim from the spi
 | Data Lake Objects (DLOs) / raw landing | Untransformed source records landed before mapping | P2,P4 | **R1**, *R6*, *R9* | spine: raw-observation projection; OSS: minio/s3 (R6) + clickhouse/duckdb (R9) | **designed** — landing-as-Observation in canonical model; R6/R9 adapters planned |
 | Source→DMO mapping & transforms | Map source fields into canonical model, normalize/cleanse | P2,P4 | **R1**, **R10**, *R3* | spine: write-projection logic against registry; OSS: dbt for batch transforms | **partial** — projection proven in `planetar-ontology/src/ingest/broker.ts`; declarative mapping UI not built |
 | Ingestion connectors (CRM, web/mobile SDKs, cloud storage) | Prebuilt source connectors feeding data streams | P2 | **R3**, *R6* | spine: detector framework; **OSS: Airbyte / Singer taps** for breadth | **designed** — connectors-at-breadth deferred (GAP); detector pattern built for sensor lanes |
-| CSV / file import & export | Bulk load and extract of records | P2,P8 | **R1**, *R6* | spine donor: doibio CSV import/export; OSS: minio for staging | **built** — `doibio` CSV import/export path (`~/data/dev/doibio`) |
+| CSV / file import & export | Bulk load and extract of records | P2,P8 | **R1**, *R6* | spine donor: doibio CSV import/export; OSS: minio for staging | **donor** — `doibio` CSV import/export path (`~/data/dev/doibio`) |
 | Schema / metadata definitions (Data Cloud setup) | Versioned definition of DMOs, mappings, identity rules | P0,P4 | **R10**, **R1** | **spine**: git-vault registry SSOT + codegen | **partial** — `planetar-registry` vertical slice; full Metadata-API-equivalent designed |
 
 ## Data Cloud — identity resolution & profile
@@ -119,12 +119,13 @@ Counts over the **58** feature rows in this slice (status against the BUILT INVE
 
 | Status | Count | Notes |
 |---|---|---|
-| **built** | 10 | Streaming ingest (broker+zmesg+detectors), CSV import/export, identity-resolution ruleset, golden profile, match rules (exact/probabilistic), survivorship, field-lineage core, dark-vessel kinematic re-ID, profile/segment Object API, detector-as-prediction, agent-tools-as-Action-Types (mechanism) |
+| **built** | 9 | Streaming ingest (broker+zmesg+detectors), CSV import/export, identity-resolution ruleset, golden profile, match rules (exact/probabilistic), survivorship, field-lineage core, dark-vessel kinematic re-ID, profile/segment Object API, detector-as-prediction, agent-tools-as-Action-Types (mechanism) |
+| **donor** | 1 | Exists only in `doibio`: pattern donor, no code reuse in planetar |
 | **partial** | 20 | DMOs, source→DMO mapping, schema/metadata, field-lineage store, segmentation, activation, data-actions, search index, reports (canned SQL), dashboards, embedded analytics, geo analytics, computed fields, AI chat (Cohere), gen-AI audit gate, agent guardrails/containment, agent run audit, audit/Event-Monitoring, identity/SSO, lineage graph |
 | **designed** | 25 | DLOs, breadth connectors, calculated insights, zero-copy federation, data sharing, vector DB, semantic/hybrid search, unstructured ingest, report builder, CRMA datasets, scheduled refresh, NBA, prompt builder, RAG grounding, model gateway/Trust-Layer, embeddings pipeline, agent definition/planner/RAG/inbox/HITL, data spaces, FLS/sharing, markings propagation, consent/privacy |
 | **planned** | 3 | Predictive scoring, Prediction Builder, Einstein Discovery (no ML prediction service exists yet) |
 
-Total: 10 + 20 + 25 + 3 = **58** distinct feature rows across nine areas.
+Total: 9 + 1 + 20 + 25 + 3 = **58** distinct feature rows across nine areas.
 
 The structural takeaway: **every `built` row is a spine component** (R1/R3/R5 + P5/P6/P7), and **every `designed`/`planned` row is OSS-to-wire or a model sidecar** — none requires changing the semantic spine. Parity is dominated by wiring named OSS engines (opensearch, pgvector, minio, clickhouse, duckdb, Superset, Marquez, OPA, keycloak, temporal, an LLM gateway) behind the existing role adapters.
 

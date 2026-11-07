@@ -1,6 +1,6 @@
 # 90 — Implementation Roadmap
 
-How to get from "20% built / 51% has-a-spine-primitive" to broad Palantir+Salesforce parity, **dependency-ordered**. The ordering is driven by the ten cross-cutting gaps ([`20 §scorecard`](./20-PARITY-MATRIX/README.md)) — not the per-feature long tail — because each phase unblocks dozens of features at once.
+How to get from "19% built / 51% built or partial" to broad Palantir+Salesforce parity, **dependency-ordered**. The ordering is driven by the ten cross-cutting gaps ([`20 §scorecard`](./20-PARITY-MATRIX/README.md)) — not the per-feature long tail — because each phase unblocks dozens of features at once.
 
 Principle (from `ROADMAP-palantir-parity.md`): **mechanism before breadth, governance before connectors.** Don't build the 200-connector long tail before there's governed lineage for it to land in.
 

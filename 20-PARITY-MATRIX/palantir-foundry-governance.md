@@ -115,13 +115,13 @@ Every governance feature decomposes (honestly) into `{R1, R10}` plus a specialty
 
 ## Coverage summary
 
-Counts are over the **42** governance / cross-cutting features in this slice.
+Counts are over the **49** governance / cross-cutting features in this slice.
 
 | Status | Count | What it means here |
 |---|---|---|
-| **built** | 8 | A named repo demonstrably does it (per-field provenance, discrepancy provenance, audit-as-event, immutable WAL audit, versioned types, atomic transactions, Ontology Manager type defs, metadata-driven schema). Backing: `planetar-ontology`, `planetar-registry`, `planetar-broker`, `doibio`. |
-| **partial** | 18 | Spine primitive exists but the governance breadth is incomplete (lineage edges without Marquez DAG, write-audit without read-audit, coarse single-`role` RBAC, branching on git-registry without COW data, encryption-in-transit via CRC32 only, etc.). |
-| **designed** | 14 | Specified in the spine docs (OPA/Keycloak adapters, row sharing, retention, manifest compiler) but not implemented. |
+| **built** | 9 | A named repo demonstrably does it (per-field provenance, discrepancy provenance, audit-as-event, immutable WAL audit, versioned types, atomic transactions, Ontology Manager type defs, metadata-driven schema). Backing: `planetar-ontology`, `planetar-registry`, `planetar-broker`, `doibio`. |
+| **partial** | 19 | Spine primitive exists but the governance breadth is incomplete (lineage edges without Marquez DAG, write-audit without read-audit, coarse single-`role` RBAC, branching on git-registry without COW data, encryption-in-transit via CRC32 only, etc.). |
+| **designed** | 21 | Specified in the spine docs (OPA/Keycloak adapters, row sharing, retention, manifest compiler) but not implemented. |
 | **planned** | 0 | (Everything in this slice is at least designed.) |
 
 Spine-owned: marking model, propagation rules, per-field provenance, audit-as-event, kinetic gate, registry/codegen, manifest compiler. OSS breadth named and actionable: **Marquez/OpenLineage** (R12), **Keycloak** + **OPA** (R13), **ClickHouse** / **Kafka** (R11 sinks), **minio** (R6 at-rest + object tags), **Vault** (secrets), **Temporal** (governed long-running review/rollout), **opensearch** (audit/restricted-view doc security).

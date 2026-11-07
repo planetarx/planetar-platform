@@ -88,10 +88,10 @@ By status:
 
 | Status | Count | Notes |
 |---|---|---|
-| **built** | 1 | Agent-writes-as-guardrailed-Action-Types (the containment path: precondition→effect→audit→reproject), backed by `planetar-ontology/src/actions/executor.ts`. (Several other rows are *built in transport but partial overall*, scored `partial`.) |
+| **built** | 2 | Agent-writes-as-guardrailed-Action-Types (the containment path: precondition→effect→audit→reproject), backed by `planetar-ontology/src/actions/executor.ts`. (Several other rows are *built in transport but partial overall*, scored `partial`.) |
 | **partial** | 13 | Features where a real repo does the spine half but the AIP/Apollo-specific half (vector grounding, LLM gateway, fleet runtime) is missing — e.g. ontology Object API, kinematic re-ID, immutable audit, manifest compiler example, `health()` port. |
 | **designed** | 9 | Specified in the spine docs with a clear role footprint but no code: guardrail/marking propagation, lineage store, air-gapped delivery, rollback, multi-tenant isolation, semantic search. |
-| **planned** | 6 | Role exists in the catalog but no design beyond it: embed pipeline, agent memory, eval harness, rate/cost control, config/secrets distribution. |
+| **planned** | 5 | Role exists in the catalog but no design beyond it: embed pipeline, agent memory, eval harness, rate/cost control, config/secrets distribution. |
 
 Headline: of the AIP/Apollo surface, **the containment and grounding *spine* is built or partial** (the hard, custom part — kinetic writes, Object API, provenance, audit, manifest compiler), while **the model-weights side of AIP and the fleet-delivery side of Apollo are designed/planned** — consistent with the "custom spine + OSS breadth" decision (we wire in pgvector/temporal/OPA/marquez rather than build them) and with the two explicit inventory deferrals (AIP agent studio, Apollo-class deploy).
 

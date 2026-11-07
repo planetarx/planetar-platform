@@ -103,14 +103,14 @@ Roles use the canonical IDs from [`10-STORAGE-ROLES.md`](../10-STORAGE-ROLES.md)
 |---|---|---|---|---|---|
 | Audience / customer 360 unification | Single resolved customer across channels | P5 | **R1**, **R4**, **R12**, *R7* | **Spine: identity resolution + per-field provenance** (the moat) | partial — ontology resolver + provenance built (ported `identity-resolution.ts` 631 LOC) |
 | Segmentation / audience builder | Filter customers into reusable segments | P9,P6 | **R9**, **R1**, *R4* | OSS: clickhouse (R9 filter scan); spine: segment as object set | partial — doibio queries/metrics (`src/lib/queries.ts`); no visual segment builder |
-| Bulk import / export (CSV) | Load/extract contacts, products, orders | P2 | **R1**, **R3**, *R6* | Spine: import → envelopes → Action Types; OSS: postgres | built — doibio CSV import/export (`~/data/dev/doibio/src/lib/import-export.ts`) |
-| Webhooks / outbound integration | Push events to external systems | P2,P7 | **R3**, **R14**, *R11* | Spine: webhook dispatch as Action Type; OSS: postgres queue | built — doibio webhooks (`~/data/dev/doibio/src/lib/webhooks.ts`), the only automation |
+| Bulk import / export (CSV) | Load/extract contacts, products, orders | P2 | **R1**, **R3**, *R6* | Spine: import → envelopes → Action Types; OSS: postgres | donor — doibio CSV import/export (`~/data/dev/doibio/src/lib/import-export.ts`) |
+| Webhooks / outbound integration | Push events to external systems | P2,P7 | **R3**, **R14**, *R11* | Spine: webhook dispatch as Action Type; OSS: postgres queue | donor — doibio webhooks (`~/data/dev/doibio/src/lib/webhooks.ts`), the only automation |
 | AI chat / assistant grounding | NL Q&A grounded on customer/catalog data | P7,P8 | **R7**, **R6**, **R10**, *R5* | Spine: kinetic containment for writes; OSS: pgvector (R7) + LLM gateway | partial — doibio Cohere AI chat (`src/services/cohere.ts`); not kinetically contained |
 | Full-text search across records | Search contacts/products/orders/content | P6,P8 | **R4**, **R1**, *R7* | **OSS: opensearch** (R4); doibio uses Elasticsearch; spine: Object API | partial — doibio Elasticsearch (`src/lib/elasticsearch.ts`); opensearch is the platform default |
 | Consent / privacy / right-to-erasure | GDPR/CCPA subject requests + audit | P1 | **R11**, **R13**, **R12** | Spine: erasure Action Type + lineage-driven cascade; OSS: OPA, marquez | designed — audit + lineage substrate exist; erasure cascade not built |
 | Engagement timeseries / activity stream | High-volume per-customer activity history | P3,P8 | **R8**, **R3**, *R4* | Spine: broker stream + track model; OSS: timescaledb (R8) | partial — broker built; activity stream not modeled for CRM |
 | Reports & dashboards (CRMA-class) | Self-serve reporting over marketing/commerce | P8,P9 | **R9**, **R1**, *R8* | OSS: clickhouse/duckdb + Superset; spine: metric registry | partial — doibio analytics canned SQL; NO report builder |
-| Per-record audit / event monitoring | Immutable log of every read/write/export | P1 | **R11** | Spine: audit envelope; OSS: clickhouse sink | built — doibio immutable event-log audit (event-sourced vault→SQLite) |
+| Per-record audit / event monitoring | Immutable log of every read/write/export | P1 | **R11** | Spine: audit envelope; OSS: clickhouse sink | donor — doibio immutable event-log audit (event-sourced vault→SQLite) |
 
 ---
 
@@ -120,10 +120,11 @@ Total features assessed: **57**.
 
 | Status | Count | Notes |
 |---|---|---|
-| built | 4 | CSV import/export, webhooks (only automation), event-log audit, AI-chat-adjacent — all in doibio; no Marketing/Commerce-specific feature is fully built |
-| partial | 21 | Spine substrate present (ontology Object API, identity resolution + provenance, Action Type executor, broker streaming, doibio objects/analytics/search) but not modeled for the specific Marketing/Commerce/Industry noun |
-| designed | 25 | Decomposition + spine hook defined; needs the declarative builder/engine or domain schema pack |
-| planned | 7 | Requires an external provider (SMS/push/payment) or an unbuilt scoring/attribution model |
+| built | 0 | Nothing in this slice is backed by a planetar repo alone |
+| donor | 3 | CSV import/export, webhooks, event-log audit. Exists only in `doibio`: pattern donor, no code reuse in planetar |
+| partial | 23 | Spine substrate present (ontology Object API, identity resolution + provenance, Action Type executor, broker streaming, doibio objects/analytics/search) but not modeled for the specific Marketing/Commerce/Industry noun |
+| designed | 26 | Decomposition + spine hook defined; needs the declarative builder/engine or domain schema pack |
+| planned | 5 | Requires an external provider (SMS/push/payment) or an unbuilt scoring/attribution model |
 
 By plane (owning, primary): P4/P6 object+ontology features dominate, followed by P7 kinetic (carts, orders, journeys-as-actions), P9 analytics (segmentation, attribution, dashboards), and P5 resolution (customer 360, identity stitching). P1 governance (consent, erasure, audit) cross-cuts.
 

@@ -76,7 +76,7 @@ Status convention: `built` (a named repo does it today) · `partial` (a named re
 | Dashboards / report builder | Compose charts + tables into shareable dashboards | P8, P9 | **R9**, **R1**, *R4* | OSS: **Superset** (or **Grafana**); spine: Object API data source | designed — no BI surface bound; `doibio/analytics-app` is canned, not a builder |
 | Charting / visualizations | Render bar/line/geo/scatter over query results | P8 | **R9**, **R1**, *R8* | OSS: **Superset**/**Grafana**/**maplibre** | partial — `doibio/analytics-app` micro-frontend renders canned charts; not a general builder |
 | Scheduled reports / exports | Run a report on a schedule and deliver/export it | P7, P9 | **R14**, **R9**, **R1** | OSS: **Temporal** (schedule) + **clickhouse**; spine: action trigger | designed — R14 work-queue port specified; no scheduler bound |
-| CSV / dataset export | Export an object set / query result to file | P8, P9 | **R1**, *R9*, *R6* | **Spine** Object API + OSS blob; donor: `doibio` import-export | built — `doibio/src/lib/import-export.ts` CSV import/export |
+| CSV / dataset export | Export an object set / query result to file | P8, P9 | **R1**, *R9*, *R6* | **Spine** Object API + OSS blob; donor: `doibio` import-export | donor — `doibio/src/lib/import-export.ts` CSV import/export |
 | Embedded analytics in apps | Drop charts/metrics into a custom app view | P8 | **R9**, **R1** | OSS: **Superset** embed; spine: `planetar-ui` panes | designed — depends on dashboard surface being bound |
 
 ---
@@ -103,7 +103,7 @@ Status convention: `built` (a named repo does it today) · `partial` (a named re
 | AIP Logic (LLM functions over the ontology) | LLM-backed functions that read object sets + return structured output | P6, P7 | **R7**, **R10**, **R1**, *R5* | OSS: LLM gateway + **pgvector**; spine: ontology functions | designed — kinetic-containment design exists; no LLM gateway wired |
 | AIP Agents / Agent Studio | Goal-driven agents that act via tools, contained to Action Types | P7, P8 | **R7**, **R6**, **R10**, *R5*; writes via **P7** | **Spine** — kinetic containment (agents write only through Action Types); OSS: vector + LLM gateway | designed — containment model designed; agent studio not built |
 | RAG grounding / knowledge retrieval | Ground LLM answers in object/document embeddings | P6 | **R7**, **R6**, **R1** | OSS: **pgvector** (or **qdrant**) + **minio/s3**; spine: Object API context | designed — R7/R6 ports specified; no embedder/store bound |
-| AI chat over data | Conversational query of objects/records | P8, P6 | **R1**, *R7*, *R4* | OSS: **Cohere** (donor) / LLM gateway; spine: Object API | built (as pattern) — `doibio` Cohere AI chat (`src/lib/ai-handler.ts`, `ai-detector.ts`) |
+| AI chat over data | Conversational query of objects/records | P8, P6 | **R1**, *R7*, *R4* | OSS: **Cohere** (donor) / LLM gateway; spine: Object API | donor (as pattern) — `doibio` Cohere AI chat (`src/lib/ai-handler.ts`, `ai-detector.ts`) |
 | Tool-use / function calling | Expose Action Types + functions as agent tools | P7 | **R10**, **R1**, **R11** | **Spine** — Action Types are the tool surface; OSS: OPA gate | designed — Action Type registry is the tool catalog; agent binding not built |
 | AI usage observability / guardrails | Audit every AI read/write + enforce guardrails | P1 | **R11**, **R13** | **Spine** audit envelope; OSS: **OPA** (guardrails) + clickhouse sink | partial — immutable event-log audit covers actions (`doibio/src/lib/event-log.ts`); AI-specific guardrails designed only |
 
@@ -115,7 +115,7 @@ Status convention: `built` (a named repo does it today) · `partial` (a named re
 |---|---|---|---|---|---|
 | Automate / event-driven rules | Trigger actions when objects change (declarative) | P7 | **R14**, **R1**, **R3**, *R13* | **Spine** — action triggers off the bus; OSS: **Temporal** (long-running) | partial — bus delivers change events; `doibio` webhooks are the only automation (`src/lib/webhooks.ts`); no declarative flow engine |
 | Scheduled builds / jobs | Run pipelines/jobs on a cron or dependency schedule | P0, P7 | **R14**, **R3** | OSS: **Temporal** (or postgres SKIP-LOCKED queue) | designed — R14 port specified; no scheduler bound |
-| Webhooks / outbound events | Call external systems on object/action events | P7, P2 | **R3**, **R14** | **Spine** — bus tap; donor: `doibio` webhooks | built — `doibio/src/lib/webhooks.ts` (the only automation present) |
+| Webhooks / outbound events | Call external systems on object/action events | P7, P2 | **R3**, **R14** | **Spine** — bus tap; donor: `doibio` webhooks | donor — `doibio/src/lib/webhooks.ts` (the only automation present) |
 | Approval / review workflows | Multi-step human approval gating an action | P7 | **R14**, **R1**, **R11**, *R13* | OSS: **Temporal** for multi-step; spine: Action Types as steps | designed — Action Types compose; no orchestration engine bound |
 | Long-running orchestration | Durable multi-step workflows with checkpointing | P7 | **R14** | OSS: **Temporal** | designed — R14 temporal binding specified; not implemented |
 
@@ -138,7 +138,8 @@ Counts are over the **61** features enumerated above (a feature counted once, by
 
 | Status | Count | Notes |
 |---|---|---|
-| **built** | 15 | Object/property/action types, Action executor + validation, identity resolution + per-field provenance, dark-vessel re-ID, golden record, Object API REST + WS, Object API live feed, Slate-pattern React apps, AI chat (Cohere donor), CSV export, webhooks — all backed by `planetar-ontology` and/or `doibio`. |
+| **built** | 12 | Object/property/action types, Action executor + validation, identity resolution + per-field provenance, dark-vessel re-ID, golden record, Object API REST + WS, Object API live feed, Slate-pattern React apps, AI chat (Cohere donor), CSV export, webhooks — all backed by `planetar-ontology` and/or `doibio`. |
+| **donor** | 3 | Exists only in `doibio`: pattern donor, no code reuse in planetar |
 | **partial** | 21 | Link types, Object Sets, Ontology Manager, OSDK codegen, Object Explorer/views, global search, graph exploration, conflict handling, multi-source fusion, time-series + geo analytics, charting, SQL transforms, Workshop/widgets/action-forms, map app, AI observability, comprehensive audit, Automate — a named repo does part; the OSS specialty role or builder UI is unbound. |
 | **designed** | 24 | Interfaces, Functions runtime, scenarios/branching, marketplace, semantic/vector search, Contour, code transforms, Quiver, calculated metrics, federation, dashboard builder, scheduled reports/jobs, embedded analytics, Object Views config, app publishing/sharing, all of AIP Logic/Agents/RAG/tool-use, approvals, orchestration, lineage, markings, purpose-based access. |
 | **planned** | 1 | Notebook hosting (no donor). |

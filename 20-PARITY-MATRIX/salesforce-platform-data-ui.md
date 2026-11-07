@@ -4,7 +4,7 @@ This slice maps the **Salesforce Platform** primitives — the metadata-driven *
 
 **Headline parity story.** Salesforce's data-model + UI moat is that *objects, fields, relationships, layouts, and search are configuration, not code* — a metadata layer (the Metadata API / Custom Metadata Types) that the runtime renders. Planetar already owns the equivalent metadata layer: the **canonical data model + registry (R10)** is the SSOT for object/field/link definitions, and the **ontology Object API** (`planetar-ontology`, built) renders typed objects/links over it via REST+WS — the OSDK-equivalent that a metadata-driven UI binds to. **doibio** is the working proof at CRM breadth: 35 JSON-schema custom objects, event-sourced vault→SQLite (37 tables), ~120 REST routes, and ~20 React micro-frontends that render those objects as list/record/related-list surfaces. So the *data-model spine and a renderable Object API are built*; what is **partial/designed** is the *declarative-UI builder chrome* (drag-drop page layouts, Dynamic Forms rules, App Builder) and the *governance-bound* pieces (FLS, field history) — Planetar has the storage roles and the canonical model to back them, but no declarative layout engine and no field-level-security enforcement yet. Search at scale binds the **object-index role (R4 → opensearch)**, semantic/Einstein-Search ranking binds the **vector role (R7 → pgvector)**; doibio runs Elasticsearch + Cohere today as the partial proof.
 
-Columns: **Required** roles in **bold**, *enhancing* roles in *italics*. Status ∈ {built · partial · designed · planned}, with the backing repo/path cited for built/partial.
+Columns: **Required** roles in **bold**, *enhancing* roles in *italics*. Status ∈ {built · donor · partial · designed · planned}, with the backing repo/path cited for built/partial.
 
 ---
 
@@ -98,7 +98,7 @@ Columns: **Required** roles in **bold**, *enhancing* roles in *italics*. Status 
 | Feature | What it does (1 line) | Owning plane(s) | Required roles (bold) + enhancing (italic) | Spine vs OSS component | Status + backing path |
 |---|---|---|---|---|---|
 | Data Import Wizard / Data Loader (CSV) | Bulk CSV import/upsert into objects | P2,P7 | **R3**, **R1**, *R14* | Spine: detector/import → envelopes → kinetic upsert; OSS: bulk loader | built — doibio CSV import/export (`~/data/dev/doibio`); ingest→bus→store path |
-| Export / backup | Bulk export object data | P2,P9 | **R1**, *R9* | Spine: canonical-store scan → export; OSS: csv/parquet | built — doibio CSV export (`~/data/dev/doibio`) |
+| Export / backup | Bulk export object data | P2,P9 | **R1**, *R9* | Spine: canonical-store scan → export; OSS: csv/parquet | donor — doibio CSV export (`~/data/dev/doibio`) |
 | Bulk API (high-volume async DML) | Async batch create/update/delete at scale | P7,P3 | **R14**, **R1**, **R3** | Spine: kinetic batch via R14 work-queue; OSS: postgres SKIP-LOCKED | designed — R14 + batch actions specified; no Bulk-API surface |
 | REST/SOAP/Composite API (CRUD) | Programmatic record CRUD over HTTP | P6 | **R1**, **R10**, *R4* | Spine: ontology Object API (REST) — the OSDK-equivalent | built — ontology REST API (`planetar-ontology/src/api/server.ts`); doibio ~120 REST routes |
 | Streaming / Platform Events / CDC | Subscribe to record-change events in real time | P3 | **R3** | Spine: `zmesg` envelope + `planetar-broker` (SHM/TCP/UDP/WAL) | built — `~/github/planetarx/planetar-broker` + `zmesg`; ontology WS push (`planetar-ontology/src/api/ws.ts`) |
@@ -113,10 +113,11 @@ Columns: **Required** roles in **bold**, *enhancing* roles in *italics*. Status 
 | Status | Count |
 |---|---|
 | built | 16 |
-| partial | 14 |
-| designed | 22 |
+| donor | 1 |
+| partial | 17 |
+| designed | 24 |
 | planned | 0 |
-| **Total features** | **52** |
+| **Total features** | **58** |
 
 Built (16): custom objects, custom fields, lookup relationships, junction objects, record IDs, custom metadata types, required/unique constraints, duplicate management, list views, search index sync, record detail page, related lists, maps/geolocation, CSV import, export/backup, REST API CRUD, streaming/Platform-Events-CDC. *(Note: streaming counted once; standard-objects, picklist-values, FLS, etc. land in partial/designed below.)*
 

@@ -8,7 +8,7 @@ Everything decided, built, verified, and queued across the two-day session that 
 
 **One platform that does everything Palantir does (Foundry · Gotham · AIP · Apollo) AND everything Salesforce does, composed per client from pluggable datastores over one custom semantic spine.** The repo is both the **design** (parity matrix, role catalog, client architectures, adapter sample code) and a **runnable zero-dependency core** that proves the mechanism.
 
-The central idea that makes "track everything in the world, a different architecture per client" buildable by one person: **Foundry, Gotham, and Salesforce are not three products — they are different *role footprints and surfaces* over one semantic spine.** Parity = covering role-compositions, not porting ~555 features one at a time.
+The central idea that makes "track everything in the world, a different architecture per client" buildable by one person: **Foundry, Gotham, and Salesforce are not three products — they are different *role footprints and surfaces* over one semantic spine.** Parity = covering role-compositions, not porting ~584 features one at a time.
 
 ## 2. The four locked decisions (user, 2026-06-09)
 
@@ -21,7 +21,7 @@ The central idea that makes "track everything in the world, a different architec
 
 ### Design (~11k lines, mostly workflow-generated 2026-06-09)
 - Keystone (hand-written): `README` · `00-ARCHITECTURE-OVERVIEW` (8 planes P0–P8) · `10-STORAGE-ROLES` ⭐ (the 14 roles + contracts) · `11-CAPABILITY-ROLE-MAP` ⭐ (role footprints) · `12-ADAPTER-CONTRACT` (ports) · `13-CLIENT-MANIFEST` (the per-client artifact).
-- `20-PARITY-MATRIX/` — **555 features** (229 Palantir + 326 Salesforce) → plane → roles → spine/OSS component → status. Scorecard: **112 built (~20%) · 170 partial (~31%) · 226 designed (~41%) · 45 planned (~8%)**; >50% already have a spine primitive. The README there ranks the **ten cross-cutting gaps** (#1 marking-propagation+FLS, #2 manifest compiler, #3 flow engine, #4 OLAP/report builder, #5 vector+LLM gateway, …).
+- `20-PARITY-MATRIX/` — **584 features** (236 Palantir + 348 Salesforce) → plane → roles → spine/OSS component → status. Scorecard: **109 built (~19%) · 15 donor (~3%) · 189 partial (~32%) · 230 designed (~39%) · 41 planned (~7%)**; 51% built or partial. The README there ranks the **ten cross-cutting gaps** (#1 marking-propagation+FLS, #2 manifest compiler, #3 flow engine, #4 OLAP/report builder, #5 vector+LLM gateway, …).
 - `30-CLIENTS/` — the 4 reference architectures, each a full manifest + Mermaid topology + reuse-vs-build.
 - `40-ADAPTERS/` — production-engine sample code (postgres-multiplex, spanner/cockroach, kafka/redis-streams/NATS, opensearch, falkordb/neo4j, minio+pgvector/qdrant, timescale/clickhouse + zero-copy federation, marquez/keycloak/OPA).
 - `90-ROADMAP.md` — dependency-ordered Phases 0–7 with progress annotations.

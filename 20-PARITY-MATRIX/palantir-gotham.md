@@ -16,7 +16,7 @@ Role legend: **R1** canonical-store · **R2** hot-cache · **R3** stream · **R4
 | Streaming ingestion | Continuous append of live observations as ordered, durable events | P2, P3 | **R3** | **spine** — `planetar-broker` SHM/TCP/UDP + WAL, envelope = `zmesg` | built — `~/github/planetarx/planetar-broker` |
 | Schema-on-ingest / typed parsing | Normalize raw rows into typed canonical observations against registered schemas | P2, P4, P6 | **R10**, **R1**, *R4* | spine: canonical model + `planetar-registry` codegen → typed Observation | partial — registry codegen vertical slice (`~/github/planetarx/planetar-registry`); detectors emit typed envelopes |
 | Raw/unstructured landing | Stage raw bytes (documents, images, feeds) before exploitation | P2, P6 | **R6**, **R1** | spine: blob handle `{sha256,size,mime}` in envelope; **OSS: minio/s3** (filesystem at edge) | designed — `ARCH-planetar-photos.md` handle model; minio binding planned |
-| Bulk / batch import (CSV, files) | Operator-driven load of tabular data into objects | P2, P4 | **R1**, **R10**, *R14* | spine: import → kinetic projector; **doibio CSV import/export** is the donor | built — doibio CSV import/export (`~/data/dev/doibio`) |
+| Bulk / batch import (CSV, files) | Operator-driven load of tabular data into objects | P2, P4 | **R1**, **R10**, *R14* | spine: import → kinetic projector; **doibio CSV import/export** is the donor | donor — doibio CSV import/export (`~/data/dev/doibio`) |
 | Geo/temporal data prep | Land and index time-stamped, geolocated tracks for Geotime-style query | P2, P8 | **R8**, **R1** | spine: track/observation model; **OSS: timescaledb + postgis** | partial — AIS/SAR/EO tracks land via detectors; postgis binding designed in maritime manifest |
 
 ## Entity resolution & the canonical entity model
@@ -124,7 +124,8 @@ Total features assessed: **57**.
 | Status | Count | Where it concentrates |
 |---|---|---|
 | **built** | 14 | Spine moat: bus (R3), entity/link model + Object API (P6), identity + kinematic re-ID (P5), action executor (P7), detectors (P2), doibio audit/CSV/Elasticsearch donors |
-| **partial** | 20 | Analyst surfaces (`planetar-ui` map/graph built, signal/imagery/timeline stubbed), graph traversal (on canonical store, no R5 engine yet), object-index search (doibio ES built, opensearch planned), lineage/provenance, multi-tenancy |
+| **donor** | 1 | Exists only in `doibio`: pattern donor, no code reuse in planetar |
+| **partial** | 19 | Analyst surfaces (`planetar-ui` map/graph built, signal/imagery/timeline stubbed), graph traversal (on canonical store, no R5 engine yet), object-index search (doibio ES built, opensearch planned), lineage/provenance, multi-tenancy |
 | **designed** | 18 | Graph-engine paths/patterns (R5), geofence/watchlist triggers, media/visual re-ID (R6/R7), agent containment, tasking queues |
 | **planned** | 5 | FMV exploitation, long-running orchestration (Temporal), row-level sharing/FLS, scenarios/branching, BI export |
 
