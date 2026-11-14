@@ -21,7 +21,7 @@ The central idea that makes "track everything in the world, a different architec
 
 ### Design (~11k lines, mostly workflow-generated 2026-06-09)
 - Keystone (hand-written): `README` · `00-ARCHITECTURE-OVERVIEW` (8 planes P0–P8) · `10-STORAGE-ROLES` ⭐ (the 14 roles + contracts) · `11-CAPABILITY-ROLE-MAP` ⭐ (role footprints) · `12-ADAPTER-CONTRACT` (ports) · `13-CLIENT-MANIFEST` (the per-client artifact).
-- `20-PARITY-MATRIX/` — **584 features** (236 Palantir + 348 Salesforce) → plane → roles → spine/OSS component → status. Scorecard: **109 built (~19%) · 15 donor (~3%) · 189 partial (~32%) · 230 designed (~39%) · 41 planned (~7%)**; 51% built or partial. The README there ranks the **ten cross-cutting gaps** (#1 marking-propagation+FLS, #2 manifest compiler, #3 flow engine, #4 OLAP/report builder, #5 vector+LLM gateway, …).
+- `20-PARITY-MATRIX/` — **609 features** (261 Palantir + 348 Salesforce) → plane → roles → spine/OSS component → status. Scorecard: **109 built (~18%) · 15 donor (~2%) · 189 partial (~31%) · 230 designed (~38%) · 66 planned (~11%)**; 49% built or partial. The README there ranks the **ten cross-cutting gaps** (#1 marking-propagation+FLS, #2 manifest compiler, #3 flow engine, #4 OLAP/report builder, #5 vector+LLM gateway, …).
 - `30-CLIENTS/` — the 4 reference architectures, each a full manifest + Mermaid topology + reuse-vs-build.
 - `40-ADAPTERS/` — production-engine sample code (postgres-multiplex, spanner/cockroach, kafka/redis-streams/NATS, opensearch, falkordb/neo4j, minio+pgvector/qdrant, timescale/clickhouse + zero-copy federation, marquez/keycloak/OPA).
 - `90-ROADMAP.md` — dependency-ordered Phases 0–7 with progress annotations.
