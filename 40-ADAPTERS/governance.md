@@ -1,10 +1,12 @@
 # 40-ADAPTERS · Governance — Registry (R10) + Audit (R11) + Lineage (R12) + Policy-Identity (R13)
 
+> Palantir-side claims corrected 2026-11-14 against the planetar-palantir research (2026-11-06); "Monocle" below is shorthand for Foundry's lineage graph, a name the research could not confirm as current.
+
 **Roles:** R10 · registry, R11 · audit-log, R12 · lineage, R13 · policy-identity — the four roles that make up the cross-cutting **P1 Governance** plane (plus R10, which is P0/P1-adjacent: the SSOT every plane reads at boot).
 **Engines:** R10 → `git-fs` (default) · `sqlite` · `postgres`. R11 → `append-wal` (default) · `clickhouse` · `kafka` · `postgres`. R12 → `marquez`/OpenLineage (default) · the R5 `graph` engine · `postgres`. R13 → `keycloak` (authn/SSO/SCIM) + `OPA` (authz PDP) default · `postgres` · `internal` (edge).
-**Status:** **partial → designed.** R10 is **built** as a vertical slice (`~/github/planetarx/planetar-registry`; `planetar-ontology/registry/types.json` is the loaded SSOT, codegen toolchain green). R11 is **partial** — an immutable, ULID-ordered, append-only event log exists in two repos (doibio `src/lib/event-log.ts`; the broker's WAL+CRC32 is an audit substrate) but tamper-evidence hash-chaining and SIEM export are **designed** here, not yet built. R12 is **designed** — the canonical model already carries per-field `provenance` (`planetar-ontology/src/store/schema.sql`, `entity.provenance TEXT NOT NULL`), so the field-level substrate exists; the OpenLineage emit + impact traversal are designed. R13 is **designed** (Keycloak+OPA wiring) with a **built** edge fallback (the ontology's in-process principal check + kinetic gate). **Marking propagation along R12 — the roadmap's "propagating security" — is the new design this file pins down concretely.**
+**Status:** **partial → designed.** R10 is **built** as a vertical slice (`~/github/planetarx/planetar-registry`; `planetar-ontology/registry/types.json` is the loaded SSOT, codegen toolchain green). R11 is **partial** — an immutable, ULID-ordered, append-only event log exists in two repos (doibio `src/lib/event-log.ts`; the broker's WAL+CRC32 is an audit substrate) but tamper-evidence hash-chaining and SIEM export are **designed** here, not yet built. R12 is **partial** — lineage-based marking is built in the platform core (2026-10-06: `applyMarking` / `effectiveMarkings` / `propagateMarking` in `adapters/fs/lineage.ts`, inheritance in `spine/system.ts`; see `20-PARITY-MATRIX/palantir-foundry-governance.md`), and the canonical model already carries per-field `provenance` (`planetar-ontology/src/store/schema.sql`, `entity.provenance TEXT NOT NULL`), so the field-level substrate exists; the OpenLineage emit + impact traversal are designed. R13 is **designed** (Keycloak+OPA wiring) with a **built** edge fallback (the ontology's in-process principal check + kinetic gate). **Marking propagation along R12 — the roadmap's "propagating security" — is the new design this file pins down concretely.**
 
-> This is the **hardest-to-clone** piece. Foundry's moat isn't its object storage; it's that a *marking applied once at ingest* follows the data through every transform to every derived store, object, and surface, and every read is checked against it. Salesforce layers object-level defaults, sharing and FLS, with one principal model through groups but grants materialized per object ([Record-Level Access: Under the Hood](https://resources.docs.salesforce.com/latest/latest/en-us/sfdc/pdf/salesforce_record_access_under_the_hood.pdf)); we did not find a marking that propagates through derived data, though Data Cloud has not been checked. We do it **once**, in the governance plane, and the lineage graph (R12) is the carrier. §4 designs the propagation; everything else is the plumbing that makes it enforceable.
+> This is the piece that matters most, though propagation itself is not rare: Snowflake propagates tags along dependencies and Atlas plus Ranger propagate classifications to derived columns (see planetar-palantir report, 2026-11-06). Foundry's strength isn't its object storage; it's that its *mandatory* controls (markings, organizations, CBAC), which can be applied at any point and retroactively ([remove markings](https://www.palantir.com/docs/foundry/building-pipelines/remove-markings/)), are inherited along data dependencies to derived datasets, cannot be silently dropped, and can be removed only through a governed path ([remove inherited](https://www.palantir.com/docs/foundry/building-pipelines/remove-inherited-markings/)), over lineage that is complete because the platform owns derivation. Discretionary controls (restricted views, object and property policies) do not propagate, and the source policy does not follow data into function returns, action edits, OSDK responses or exports ([propagation](https://www.palantir.com/docs/foundry/security/access-control-propagation/)). Salesforce layers object-level defaults, sharing and FLS, with one principal model through groups but grants materialized per object ([Record-Level Access: Under the Hood](https://resources.docs.salesforce.com/latest/latest/en-us/sfdc/pdf/salesforce_record_access_under_the_hood.pdf)); we did not find a marking that propagates through derived data, though Data Cloud has not been checked. We do it **once**, in the governance plane, and the lineage graph (R12) is the carrier. §4 designs the propagation; everything else is the plumbing that makes it enforceable.
 
 ---
 
@@ -16,10 +18,10 @@ The four governance roles are different in kind from the storage roles (R1–R9)
 |---|---|---|---|
 | **R10 registry** | SSOT for schema/object/link/action/manifest defs; loaded into a compiled in-memory copy at boot (no I/O on the data path) | `git-fs` (matches the canonical model's git-vault SSOT; PR-reviewed, SemVer-tagged, diffable) | `sqlite`/`postgres` when a *running registry service* with a write API is wanted (multi-author live edits, no git workflow) |
 | **R11 audit-log** | Immutable record of every read/write/export/admin/AI action; exportable to a client SIEM | `append-wal` (broker-style, zero external deps, edge-friendly) | `clickhouse` when you must *query* audit at scale (Shield-style Event Monitoring dashboards); `kafka` when you stream straight to a SIEM; `postgres` when one engine must cover it all |
-| **R12 lineage** | Provenance graph: source→observation→entity→derivation edges; field-level provenance; impact analysis. **The carrier for marking propagation.** | `marquez` (OpenLineage standard, postgres-backed, mature UI = Foundry Monocle parity) | reuse the **R5 graph engine** (falkordb/neo4j) when lineage queries are graph-shaped and you already run a graph; `postgres` (recursive CTE) at small scale |
+| **R12 lineage** | Provenance graph: source→observation→entity→derivation edges; field-level provenance; impact analysis. **The carrier for marking propagation.** | `marquez` (OpenLineage standard, postgres-backed, mature UI; parity with Foundry's lineage *graph* only, not its enforcement) | reuse the **R5 graph engine** (falkordb/neo4j) when lineage queries are graph-shaped and you already run a graph; `postgres` (recursive CTE) at small scale |
 | **R13 policy-identity** | Principals (users, service accounts, AI agents), roles, group/territory membership, markings, and the **PDP** that answers `can principal do action on resource under marking?` | `keycloak` (authn/SSO/SAML/OIDC/SCIM) **+** `OPA` (authz decisions, default-deny Rego) | `postgres` for a single-store internal IdP; `internal` for edge/air-gapped (local principals + an *embedded* OPA bundle, no network) |
 
-**The collapse rule still applies.** A minimal edge box ([`10 §3`](../10-STORAGE-ROLES.md)) binds R10→`git-fs`, R11→`append-wal` (the broker WAL *is* the audit substrate), R12→`postgres` (or the same sqlite, recursive-CTE lineage), R13→`internal` — **zero external governance services**, yet markings still propagate (the propagation engine is spine code; the *store* under it is swappable). A regulated cloud binds `marquez` + `keycloak` + `OPA` + `clickhouse` and gets Monocle-class lineage, SSO, a queryable SIEM feed, and a default-deny PDP — **same spine, same propagation rules, same audit envelopes.**
+**The collapse rule still applies.** A minimal edge box ([`10 §3`](../10-STORAGE-ROLES.md)) binds R10→`git-fs`, R11→`append-wal` (the broker WAL *is* the audit substrate), R12→`postgres` (or the same sqlite, recursive-CTE lineage), R13→`internal` — **zero external governance services**, yet markings still propagate (the propagation engine is spine code; the *store* under it is swappable). A regulated cloud binds `marquez` + `keycloak` + `OPA` + `clickhouse` and gets a Foundry-style lineage graph, SSO, a queryable SIEM feed, and a default-deny PDP — **same spine, same propagation rules, same audit envelopes.**
 
 ### 1.1 The PEP/PDP split (load-bearing for R13)
 
@@ -31,9 +33,9 @@ R13 is **two halves**: a **PDP** (Policy Decision Point — "may this happen?") 
 |---|---|---|
 | R10 registry (`git-fs`) | Ontology Manager, branch/merge of ontology | Metadata API, Custom Metadata Types, change sets |
 | R11 audit-log (`append-wal`/`clickhouse`) | Comprehensive Audit, usage observability | Shield **Event Monitoring**, **Setup Audit Trail**, **Field Audit Trail** |
-| R12 lineage (`marquez`) | **Data Lineage / Monocle**, Markings *propagation* | Data Cloud lineage-to-source (no field-level marking propagation — the gap we close) |
+| R12 lineage (`marquez`) | **Data Lineage** ("Monocle", name unconfirmed), Markings *propagation* | Data Cloud lineage-to-source (no field-level marking propagation — the gap we close) |
 | R13 policy-identity (`keycloak`+`OPA`) | **Markings**, orgs/spaces, RBAC, **purpose-based access**, Control Panel | profiles, **permission sets**, **OWD**, **sharing rules**, **FLS**, Shield, roles/territories |
-| Marking propagation (§4, spine) | The Foundry differentiator | **No equivalent found** (Data Cloud not checked) — SF grants are materialized per object; this is the clone-resistant piece |
+| Marking propagation (§4, spine) | Inheritance of mandatory controls plus governed removal (`stop_propagating`); not unique to Foundry (Snowflake, Atlas plus Ranger) | **No equivalent found** (Data Cloud not checked; not re-verified 2026-11-14) — SF grants are materialized per object |
 
 ---
 
@@ -218,7 +220,7 @@ export interface AuditRecord {
   action: 'read' | 'write' | 'export' | 'admin' | 'ai-invoke' | 'action-type';
   resourceType: string; resourceId: string;
   markings: string[];         // markings in effect on the touched resource (carried from R12)
-  purpose?: string;           // purpose-based-access tag (Foundry purpose)
+  purpose?: string;           // purpose-based-access tag (a pattern in Foundry, not a documented feature)
   outcome: 'allow' | 'deny';
   detail?: Json;
   prevHash?: string;          // hash-chain link to the previous record (tamper-evidence)
@@ -259,7 +261,7 @@ export interface PolicyIdentity extends Adapter {
 
 ### 3.1 `AppendWalAuditLog` (R11 default — broker-style WAL, hash-chained, SIEM export)
 
-Append-only, fsync'd, **hash-chained** so any deletion or edit breaks the chain (tamper-evidence — the property Foundry audit and SF Field Audit Trail sell). `verify()` re-walks; `export()` streams CEF/LEEF/OCSF to a SIEM. Backing substrate exists: the broker's WAL+CRC32 and doibio's append-only `event-log.ts`; this adds the chain + SIEM codecs.
+Append-only, fsync'd, **hash-chained** so any deletion or edit breaks the chain (tamper-evidence — planetar's design; Foundry's current audit overview makes no tamper-evidence claim, and whether Palantir offers it today is disputed — see planetar-palantir report, 2026-11-06). `verify()` re-walks; `export()` streams CEF/LEEF/OCSF to a SIEM. Backing substrate exists: the broker's WAL+CRC32 and doibio's append-only `event-log.ts`; this adds the chain + SIEM codecs.
 
 ```ts
 // 40-ADAPTERS/governance/append-wal-audit.ts
@@ -348,9 +350,9 @@ const SIEM = {
 
 `ClickhouseAuditLog` / `KafkaAuditLog` implement the same port: `append` becomes an `INSERT`/`produce`, `scan` a `SELECT`/consumer, `export` a materialized query / a sink topic the SIEM consumes directly. The hash-chain travels in the row/message, so tamper-evidence is engine-independent. Bind `clickhouse` when audit must be *queried* (Shield Event Monitoring dashboards over billions of rows); `kafka` when the SIEM pulls the stream.
 
-### 3.2 `MarquezLineage` (R12 default — OpenLineage / Marquez, the Monocle parity)
+### 3.2 `MarquezLineage` (R12 default — OpenLineage / Marquez, lineage-graph parity)
 
-OpenLineage is the open standard for run/job/dataset lineage; Marquez is its reference store (postgres-backed, with a UI = Foundry Monocle). We emit OpenLineage events on every transform and add **field-level + marking** facets the base spec doesn't standardize.
+OpenLineage is the open standard for run/job/dataset lineage; Marquez is its reference store (postgres-backed, with a lineage-graph UI comparable to Foundry's). We emit OpenLineage events on every transform and add **field-level + marking** facets the base spec doesn't standardize.
 
 ```ts
 // 40-ADAPTERS/governance/marquez-lineage.ts
@@ -420,7 +422,7 @@ export class MarquezLineage implements Lineage {
 }
 ```
 
-`GraphLineage` reuses the **R5 `GraphStore` port** (falkordb/neo4j): nodes/edges are graph nodes/edges, `upstream`/`downstream` are Cypher traversals, `propagateMarking` is one `MATCH (n)-[:DERIVES*]->(m) SET m.markings = m.markings + $marking`. `PgLineage` does it with a recursive CTE. Same port; pick `graph` when you already run R5 and lineage is graph-shaped, `marquez` when you want the standard + the Monocle-class UI for free.
+`GraphLineage` reuses the **R5 `GraphStore` port** (falkordb/neo4j): nodes/edges are graph nodes/edges, `upstream`/`downstream` are Cypher traversals, `propagateMarking` is one `MATCH (n)-[:DERIVES*]->(m) SET m.markings = m.markings + $marking`. `PgLineage` does it with a recursive CTE. Same port; pick `graph` when you already run R5 and lineage is graph-shaped, `marquez` when you want the standard + a lineage-graph UI for free.
 
 ### 3.3 `KeycloakOpaPolicy` (R13 default — Keycloak authn + OPA PDP, default-deny)
 
@@ -506,7 +508,7 @@ decision := {"allow": true, "reason": "role+marking", "obligations": obligations
   purpose_ok
 }
 
-# purpose-based access (Foundry "purpose"): some markings require a declared purpose
+# purpose-based access (a pattern in Foundry, not a documented feature): some markings require a declared purpose
 purpose_ok if not data.purposeRequired[input.markings[_]]
 purpose_ok if input.purpose in data.allowedPurposes[input.markings[_]]
 
@@ -518,9 +520,9 @@ obligations := {"redact": [f | some f in data.flsRedact[input.resourceType][inpu
 
 ---
 
-## 4. Propagating security — the marking that follows the data (the clone-resistant core)
+## 4. Propagating security — the marking that follows the data
 
-This is the design the roadmap calls "propagating security." A **marking** (e.g. `OPS-RESTRICTED`, `NOFORN`, `PII`) is applied **once, at ingest (P2)**, and must then gate every downstream read **without anyone re-declaring it** on the derived store, object, or surface. R12 (lineage) is the carrier; R13 (the PDP) is the gate; R11 (audit) is the record; every adapter is the enforcer (PEP).
+This is the design the roadmap calls "propagating security." A **marking** (e.g. `OPS-RESTRICTED`, `NOFORN`, `PII`) is applied **at ingest (P2)**, or later by re-classification (as Foundry allows at any point), and must then gate every downstream read **without anyone re-declaring it** on the derived store, object, or surface. R12 (lineage) is the carrier; R13 (the PDP) is the gate; R11 (audit) is the record; every adapter is the enforcer (PEP).
 
 ### 4.1 The mechanism in one walk (lifecycle 4.1 + governance)
 
@@ -545,7 +547,7 @@ P2 ingest
                           R11 audit.append({principal, resourceId, markings, outcome})
 ```
 
-The invariant: **a derived object's marking set is the union of the markings of everything upstream of it in R12.** Because every transform (`detect`, `resolve`, `derive`, `aggregate`) records a lineage edge, the closure is computable; `propagateMarking` walks the downstream closure and stamps each node. No store re-implements policy; each one *carries* the marking the lineage handed it and *asks* the PDP.
+The invariant: **a derived object's marking set is the union of the markings of everything upstream of it in R12.** Because every transform (`detect`, `resolve`, `derive`, `aggregate`) records a lineage edge, the closure is computable; `propagateMarking` walks the downstream closure and stamps each node. No store re-implements policy; each one *carries* the marking the lineage handed it and *asks* the PDP. The invariant is union-only: nothing in it ever removes a marking, which is the open item in §4.4.
 
 ### 4.2 The propagation engine (spine, engine-agnostic)
 
@@ -581,7 +583,7 @@ export async function propagate(
 }
 ```
 
-The resolver calls `propagate(lineage, audit, entityId, [obsIdA, obsIdB], systemPrincipal)` after every merge. A re-classification (an admin adds `NOFORN` to a source) calls `lineage.propagateMarking(sourceId, 'NOFORN')` once; the closure re-stamps every entity, index doc, graph node, and surface card derived from it — **retroactive, automatic, audited.** That single property is what Foundry has and Salesforce's per-object security cannot express.
+The resolver calls `propagate(lineage, audit, entityId, [obsIdA, obsIdB], systemPrincipal)` after every merge. A re-classification (an admin adds `NOFORN` to a source) calls `lineage.propagateMarking(sourceId, 'NOFORN')` once; the closure re-stamps every entity, index doc, graph node, and surface card derived from it — **retroactive, automatic, audited.** Foundry has this for mandatory controls; Salesforce's per-object security does not (not re-verified 2026-11-14). What planetar lacks and Foundry has is the reverse path, governed removal (§4.4).
 
 ### 4.3 Enforcement at the PEP (every adapter, the same three lines)
 
@@ -603,7 +605,22 @@ async getEntity(type: TypeName, id: EntityId, ctx: CallContext): Promise<Canonic
 }
 ```
 
-Because the marking is **on the row** (placed there by propagation, not by the application) and the PEP is **in the adapter** (not the app), enforcement is uniform, unbypassable, and survives an engine swap. Salesforce parity: OWD = the default-deny Rego; sharing rules = `data.grants[role]`; FLS = `obligations.redact`; Shield/Field Audit Trail = the R11 hash-chained log. Foundry parity: markings + Monocle propagation = R12 `propagateMarking`; purpose-based access = `purpose_ok`.
+Because the marking is **on the row** (placed there by propagation, not by the application) and the PEP is **in the adapter** (not the app), enforcement is uniform, unbypassable, and survives an engine swap. Salesforce parity: OWD = the default-deny Rego; sharing rules = `data.grants[role]`; FLS = `obligations.redact`; Shield/Field Audit Trail = the R11 hash-chained log. Foundry parity: marking inheritance along lineage = R12 `propagateMarking` (no counterpart yet to Foundry's governed `stop_propagating`, §4.4); purpose-based access, a Foundry pattern rather than a documented feature = `purpose_ok`.
+
+
+### 4.4 Open design item — governed declassification (no marking-removal path)
+
+**Gap (confirmed 2026-11-14).** The marking model is union-only and has no governed removal path. A grep of `spine/`, `adapters/` and `boot/` for any removal API (`removeMarking`, `declassify`, `stop_propagating`, `unmark`, `revokeMarking` and similar) finds none. The lineage port offers only `applyMarking`, `effectiveMarkings` and `propagateMarking` (`spine/ports.ts`, `adapters/fs/lineage.ts`), the canonical store only `addMarkings`, and the conformance suite asserts that `upsertEntity` never shrinks a row's markings (`spine/conformance.ts`). Markings can be added and inherited, never removed. Over time a union-only system over-marks: derived data accumulates every upstream marking until analysts cannot use anything or administrators stop marking.
+
+**What Foundry does.** Removal is itself a governed code change. A transform declares, per input, `stop_propagating=Markings([ids], [branches])`; the change requires a protected branch and an approver holding the marking's removal permission ([remove inherited markings](https://www.palantir.com/docs/foundry/building-pipelines/remove-inherited-markings/)). Removal "is not symmetrical": it affects only *new* output transactions, not data already written ([guidance](https://www.palantir.com/docs/foundry/building-pipelines/remove-markings/)). The platform checks the approval; no documented check was found that the data was actually cleaned. At the Ontology boundary, an object security policy can also add or remove inherited controls ([object policies](https://www.palantir.com/docs/foundry/object-permissioning/object-security-policies/)).
+
+**Design questions to settle before any code** (nothing here is implemented):
+
+- Where removal is declared: on a lineage edge (this derivation stops inheriting marking *M* from input *I*), not on a node, so other paths that carry *M* still propagate it.
+- Approver separation: the principal who declares a removal cannot approve it; approval needs a distinct removal permission per marking in R13, and the registry (R10) change that declares it goes through governed review.
+- Forward-only semantics, as in Foundry: a removal applies to derivations recorded after approval; existing derived rows keep their markings until re-derived. The `upsertEntity` never-shrink invariant then needs a narrow, audited exception for re-derivation under an approved removal.
+- Audit: the declaration, the approval and every re-derivation that drops a marking are R11 records, themselves marked.
+- Conformance: a cross-port test that removal without approval is refused, that an approved removal affects only later derivations, and that a marking arriving by a second path still propagates.
 
 ---
 
@@ -627,7 +644,7 @@ Because the marking is **on the row** (placed there by propagation, not by the a
 ### R12 lineage
 | Engine | Consistency | Scale | p99 traverse | When to choose |
 |---|---|---|---|---|
-| **marquez/OpenLineage** (default) | read-your-writes | vertical | ~50 ms | the standard + a Monocle-class UI for free; postgres-backed; field-level facets |
+| **marquez/OpenLineage** (default) | read-your-writes | vertical | ~50 ms | the standard + a lineage-graph UI for free; postgres-backed; field-level facets |
 | graph (falkordb/neo4j, reuse R5) | read-your-writes | vertical/sharded | ~30 ms (bounded) | lineage queries are graph-shaped and you already run R5; `propagateMarking` = one Cypher SET |
 | postgres (recursive CTE) | read-your-writes | vertical | ~80 ms | small scale; avoid a second system; rides the canonical-store pg |
 
@@ -707,7 +724,7 @@ Green across the matrix = a client can bind *any* governance engine combination 
 | Tier ([`13`](../13-CLIENT-MANIFEST.md)) | R10 | R11 | R12 | R13 | Governance shape |
 |---|---|---|---|---|---|
 | **edge / air-gapped** (planetar today) | git-fs | append-wal (broker WAL substrate) | postgres or sqlite (recursive CTE) | internal (embedded OPA-WASM) | zero external services; markings still propagate (engine is spine code) |
-| **standard** (single-cloud SaaS) | git-fs | postgres or clickhouse | marquez (rides the workhorse pg) | keycloak + OPA | SSO + queryable audit + Monocle UI |
+| **standard** (single-cloud SaaS) | git-fs | postgres or clickhouse | marquez (rides the workhorse pg) | keycloak + OPA | SSO + queryable audit + lineage UI |
 | **scale / regulated** | git-fs (+ optional pg mirror) | clickhouse + kafka (→ SIEM) | marquez or falkordb (reuse R5) | keycloak + OPA (HA) | dashboards, streamed SIEM, default-deny PDP, purpose-based access |
 
 Per reference client ([`README`](../README.md) §"four reference clients"):

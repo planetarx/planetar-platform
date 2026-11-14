@@ -1,5 +1,7 @@
 # 30 — Reference Client · Maritime / Defence (`planetar`)
 
+> Palantir-side claims corrected 2026-11-14 against the planetar-palantir research (2026-11-06); rows it did not cover are unchanged.
+
 This is the **built** reference client — the one the whole platform was extracted from. Everything other clients ([biotech CRM](./biotech-crm.md), [generic enterprise](./generic-enterprise.md), [intel / financial-crime](./intel-financial-crime.md)) does by *re-binding* the same spine to different engines, the maritime client does *natively*, because the spine repos (`zmesg`, `planetar-broker`, `planetar-ontology`, the four detectors, `planetar-ui`) **are** the maritime build. Read it first to see the role→engine model running on real code, then see the others prove the same capabilities on a different engine mix.
 
 > Status legend ([`README`](../README.md)): ✅ built · 🟡 partial/designed · 🔲 planned. Capability keys and role footprints are from [`11`](../11-CAPABILITY-ROLE-MAP.md); engine choices match [`40-ADAPTERS/`](../40-ADAPTERS/); the manifest validates against [`13`](../13-CLIENT-MANIFEST.md).
@@ -20,13 +22,13 @@ Capability keys from [`11 §2/§3`](../11-CAPABILITY-ROLE-MAP.md). The manifest 
 |---|---|---|---|---|
 | `streaming-ingestion` | P2,P3 | **R3** | — | Foundry streaming, Gotham connectors |
 | `identity-resolution` | P5 | **R1**, **R4**, **R12** | *R7* | Foundry/Data Cloud/Gotham entity res |
-| `kinetic-writes` | P7 | **R10**, **R1**, **R11**, **R3** | *R13* | Foundry Actions (the only write path) |
+| `kinetic-writes` | P7 | **R10**, **R1**, **R11**, **R3** | *R13* | Foundry Actions (on OSv2, the only path for user edits) |
 | `dark-vessel-reid` | P5 | **R1**, **R8** | *R7* | planetar flagship (kinematic re-ID) |
 | `geotemporal` | P8 | **R8**, **R1** | *R5* | Gotham Geotime / Gaia / SF Maps |
-| `link-analysis` | P6,P8 | **R5**, **R1** | *R4* | Gotham Graph / Vertex |
+| `link-analysis` | P6,P8 | **R5**, **R1** | *R4* | Gotham Graph; Foundry Vertex (two products) |
 | `media-sets` | P2,P6,P8 | **R6**, **R1** | *R7* | Foundry media sets, Gotham imagery/FMV |
 | `audit` | P1 | **R11** | — | Foundry audit / SF Shield |
-| `agents-rag` *(optional, scale only)* | P7,P8 | **R7**, **R6**, **R10** | *R5* | AIP / Agentforce (kinetic-contained) |
+| `agents-rag` *(optional, scale only)* | P7,P8 | **R7**, **R6**, **R10** | *R5* | AIP / Agentforce (kinetic containment is planetar's design; AIP agents are not limited to actions) |
 
 **Union of required roles (core, both tiers):** `{ R1, R3, R4, R5, R6, R8, R10, R11, R12, R13, R14 }`.
 - R14 (work-queue) is pulled in by `kinetic-writes`' alert/trigger path and re-ID job fan-out; R13 enters as the *enhancing* gate on `kinetic-writes` but is bound at both tiers because every adapter is a PEP ([`governance.md §1`](../40-ADAPTERS/governance.md)).
@@ -187,7 +189,7 @@ roles:
   audit-log:                        # R11 — append-wal → kafka (tee to coalition SIEM)
     engine: kafka
     config: { brokers: [k1.region.internal:9092], topic: planetar.audit, export: { format: ocsf } }
-  lineage:                          # R12 — sqlite-CTE → marquez (OpenLineage, Monocle-class)
+  lineage:                          # R12 — sqlite-CTE → marquez (OpenLineage; lineage graph only, not enforcement)
     engine: marquez
     config: { url: http://marquez.region.internal:5000 }
   policy-identity:                  # R13 — internal → keycloak + OPA (SSO + default-deny PDP)
@@ -308,7 +310,7 @@ Engine columns: **E** = edge binding (§3.1), **S** = scale binding (§3.2). Sta
 | Detection dashboards (OLAP) | R9, R1, *R8* | — (unbound at edge) / clickhouse | 🔲 designed | Net-new only at scale: clickhouse rollups ([`timeseries-olap.md §4.1`](../40-ADAPTERS/timeseries-olap.md)). Edge runs none — no offline big-scan reporting. |
 | Agents (RAG, kinetic-contained) | R7, R6, R10, *R5* | — (off at edge) / pgvector+minio | 🔲 designed | Net-new: RAG grounding via R7 + LLM gateway; **containment is reused** — the same `ActionExecutor` is the agent's only write path (AIP guardrail, README GAPS for the studio). |
 
-**Coverage at a glance:** the Gotham core loop (ingest → resolve → link-graph → kinetic act → live surface) is **built spine** that runs unchanged at both tiers; the deltas are (1) workbench-surface polish (signal/timeline/imagery tabs), (2) dedicated R5/R8 engines bound to ports that already exist, (3) markings propagation (P1), and (4) the optional scale-only R7/R9 + agent-studio adds.
+**Coverage at a glance:** the Gotham-style investigative loop (ingest → resolve → link-graph → kinetic act → live surface) is **built spine** (Gotham's targeting and multi-site peering are not covered; see [`palantir-gotham.md`](../20-PARITY-MATRIX/palantir-gotham.md)) that runs unchanged at both tiers; the deltas are (1) workbench-surface polish (signal/timeline/imagery tabs), (2) dedicated R5/R8 engines bound to ports that already exist, (3) markings propagation (P1), and (4) the optional scale-only R7/R9 + agent-studio adds.
 
 ---
 
@@ -527,4 +529,4 @@ The detector knows nothing about sqlite vs postgres, postgis vs timescaledb, bro
 5. **RF lane** — registered as a modality (no service); the fifth fusion lane in the flagship pitch is not yet a detector.
 6. **Apollo-style bundle + multi-tenancy hardening** — the air-gapped delivery format and deployment-level tenant isolation are designed; the per-client manifest gives logical isolation only.
 
-The honest framing: the **Gotham core loop is built and runs at both tiers unchanged**; the gaps are governance propagation, three role-engine bindings behind ports that already exist, and the optional scale-only agent/visual-re-ID/OLAP adds. None of the gaps require changing the spine — by construction, they are manifest bindings and P1 propagation rules, which is the entire bet of [`11 §4`](../11-CAPABILITY-ROLE-MAP.md).
+The honest framing: the **Gotham-style investigative loop is built and runs at both tiers unchanged** (targeting and multi-site peering are not); the gaps are governance propagation, three role-engine bindings behind ports that already exist, and the optional scale-only agent/visual-re-ID/OLAP adds. None of the gaps require changing the spine — by construction, they are manifest bindings and P1 propagation rules, which is the entire bet of [`11 §4`](../11-CAPABILITY-ROLE-MAP.md).
