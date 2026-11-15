@@ -547,7 +547,7 @@ P2 ingest
                           R11 audit.append({principal, resourceId, markings, outcome})
 ```
 
-The invariant: **a derived object's marking set is the union of the markings of everything upstream of it in R12.** Because every transform (`detect`, `resolve`, `derive`, `aggregate`) records a lineage edge, the closure is computable; `propagateMarking` walks the downstream closure and stamps each node. No store re-implements policy; each one *carries* the marking the lineage handed it and *asks* the PDP. The invariant is union-only: nothing in it ever removes a marking, which is the open item in §4.4.
+The invariant: **a derived object's marking set is the union of the markings of everything upstream of it in R12.** Because every transform (`detect`, `resolve`, `derive`, `aggregate`) records a lineage edge, the closure is computable; `propagateMarking` walks the downstream closure and stamps each node. No store re-implements policy; each one *carries* the marking the lineage handed it and *asks* the PDP. The invariant is union-only except for one governed exception: re-derivation under an approved declassification (§4.4).
 
 ### 4.2 The propagation engine (spine, engine-agnostic)
 
@@ -583,7 +583,7 @@ export async function propagate(
 }
 ```
 
-The resolver calls `propagate(lineage, audit, entityId, [obsIdA, obsIdB], systemPrincipal)` after every merge. A re-classification (an admin adds `NOFORN` to a source) calls `lineage.propagateMarking(sourceId, 'NOFORN')` once; the closure re-stamps every entity, index doc, graph node, and surface card derived from it — **retroactive, automatic, audited.** Foundry has this for mandatory controls; Salesforce's per-object security does not (not re-verified 2026-11-14). What planetar lacks and Foundry has is the reverse path, governed removal (§4.4).
+The resolver calls `propagate(lineage, audit, entityId, [obsIdA, obsIdB], systemPrincipal)` after every merge. A re-classification (an admin adds `NOFORN` to a source) calls `lineage.propagateMarking(sourceId, 'NOFORN')` once; the closure re-stamps every entity, index doc, graph node, and surface card derived from it — **retroactive, automatic, audited.** Foundry has this for mandatory controls; Salesforce's per-object security does not (not re-verified 2026-11-14). The reverse path, governed removal, is built since 2026-11-15 (§4.4).
 
 ### 4.3 Enforcement at the PEP (every adapter, the same three lines)
 
@@ -605,16 +605,20 @@ async getEntity(type: TypeName, id: EntityId, ctx: CallContext): Promise<Canonic
 }
 ```
 
-Because the marking is **on the row** (placed there by propagation, not by the application) and the PEP is **in the adapter** (not the app), enforcement is uniform, unbypassable, and survives an engine swap. Salesforce parity: OWD = the default-deny Rego; sharing rules = `data.grants[role]`; FLS = `obligations.redact`; Shield/Field Audit Trail = the R11 hash-chained log. Foundry parity: marking inheritance along lineage = R12 `propagateMarking` (no counterpart yet to Foundry's governed `stop_propagating`, §4.4); purpose-based access, a Foundry pattern rather than a documented feature = `purpose_ok`.
+Because the marking is **on the row** (placed there by propagation, not by the application) and the PEP is **in the adapter** (not the app), enforcement is uniform, unbypassable, and survives an engine swap. Salesforce parity: OWD = the default-deny Rego; sharing rules = `data.grants[role]`; FLS = `obligations.redact`; Shield/Field Audit Trail = the R11 hash-chained log. Foundry parity: marking inheritance along lineage = R12 `propagateMarking` (Foundry's governed `stop_propagating` ≈ the approved per-edge declassification of §4.4); purpose-based access, a Foundry pattern rather than a documented feature = `purpose_ok`.
 
 
-### 4.4 Open design item — governed declassification (no marking-removal path)
+### 4.4 Governed declassification (marking removal) — built 2026-11-15
 
-**Gap (confirmed 2026-11-14).** The marking model is union-only and has no governed removal path. A grep of `spine/`, `adapters/` and `boot/` for any removal API (`removeMarking`, `declassify`, `stop_propagating`, `unmark`, `revokeMarking` and similar) finds none. The lineage port offers only `applyMarking`, `effectiveMarkings` and `propagateMarking` (`spine/ports.ts`, `adapters/fs/lineage.ts`), the canonical store only `addMarkings`, and the conformance suite asserts that `upsertEntity` never shrinks a row's markings (`spine/conformance.ts`). Markings can be added and inherited, never removed. Over time a union-only system over-marks: derived data accumulates every upstream marking until analysts cannot use anything or administrators stop marking.
+**Status (2026-11-15): built in the platform core.** A principal requests that a marking stop flowing along one lineage edge (`requestDeclassification`, `spine/declassify.ts`). A different principal, cleared for the marking and holding the role `declassify:<marking>` in the PDP, approves it. Only the approval changes inheritance, and only forward: a derived entity loses the marking when it is next re-derived, while a marking arriving by another path or applied at the entity itself stays. Raw `lineage.record` and `canonical-store.removeMarkings` are refused, and the request, the approval and every drop are audited and marked. Design: [`../docs/specs/2026-11-15-governed-declassification-design.md`](../docs/specs/2026-11-15-governed-declassification-design.md). Verified by `npm run governance` (79/79, including nine declassification checks) and `npm run conformance` (14/14). The live `planetar-ontology` service has no markings, so none of this reaches it yet.
+
+The text below is the gap as it was recorded before the build.
+
+**Gap as it stood (confirmed 2026-11-14).** The marking model is union-only and has no governed removal path. A grep of `spine/`, `adapters/` and `boot/` for any removal API (`removeMarking`, `declassify`, `stop_propagating`, `unmark`, `revokeMarking` and similar) finds none. The lineage port offers only `applyMarking`, `effectiveMarkings` and `propagateMarking` (`spine/ports.ts`, `adapters/fs/lineage.ts`), the canonical store only `addMarkings`, and the conformance suite asserts that `upsertEntity` never shrinks a row's markings (`spine/conformance.ts`). Markings can be added and inherited, never removed. Over time a union-only system over-marks: derived data accumulates every upstream marking until analysts cannot use anything or administrators stop marking.
 
 **What Foundry does.** Removal is itself a governed code change. A transform declares, per input, `stop_propagating=Markings([ids], [branches])`; the change requires a protected branch and an approver holding the marking's removal permission ([remove inherited markings](https://www.palantir.com/docs/foundry/building-pipelines/remove-inherited-markings/)). Removal "is not symmetrical": it affects only *new* output transactions, not data already written ([guidance](https://www.palantir.com/docs/foundry/building-pipelines/remove-markings/)). The platform checks the approval; no documented check was found that the data was actually cleaned. At the Ontology boundary, an object security policy can also add or remove inherited controls ([object policies](https://www.palantir.com/docs/foundry/object-permissioning/object-security-policies/)).
 
-**Design questions to settle before any code** (nothing here is implemented):
+**Design questions** (each is settled in the spec above):
 
 - Where removal is declared: on a lineage edge (this derivation stops inheriting marking *M* from input *I*), not on a node, so other paths that carry *M* still propagate it.
 - Approver separation: the principal who declares a removal cannot approve it; approval needs a distinct removal permission per marking in R13, and the registry (R10) change that declares it goes through governed review.

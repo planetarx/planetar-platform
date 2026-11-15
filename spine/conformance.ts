@@ -5,6 +5,7 @@ import { ADAPTER_REGISTRY, type RoleBinding } from './contracts.ts';
 import { consoleLogger, PERMISSIVE_MARKING, makeShared } from './compiler.ts';
 import type { RoleId, Adapter, AdapterContext, Principal, CanonicalStore, ObjectIndex, WorkQueue, Stream, BlobCas, AuditLog, Lineage, Registry, PolicyIdentity, Cache, VectorStore, GraphStore, TimeSeriesGeo } from './ports.ts';
 import type { Json } from './model.ts';
+import { isFlowEdge } from './ports.ts';
 
 export interface ConformanceReport { role: RoleId; engine: string; ok: boolean; checks: { name: string; ok: boolean; info: string }[]; }
 
@@ -58,6 +59,15 @@ const SUITES: Partial<Record<RoleId, (a: Adapter, t: T) => Promise<void>>> = {
       await s.upsertEntity(row(2, ['A']));                         // a writer holding a stale copy of the row
       const g = await s.getEntity('x:T', 'm3');
       if (g?.fields.f !== 2 || (g.markings ?? []).slice().sort().join() !== 'A,B') throw new Error(`fields=${JSON.stringify(g?.fields)} markings=${JSON.stringify(g?.markings)}`);
+      return 'ok';
+    });
+    await t('removeMarkings is atomic, leaves fields alone and reports whether the set shrank', async () => {
+      await s.upsertEntity({ id: 'm4', type: 'x:T', ts: nowNs(), source: 's', schemaVersion: 1, fields: { f: 7 }, provenance: {}, markings: ['A', 'B', 'C'] });
+      if (!await s.removeMarkings('x:T', 'm4', ['B', 'Z'])) throw new Error('removeMarkings should report shrinkage');
+      if (await s.removeMarkings('x:T', 'm4', ['B'])) throw new Error('removeMarkings should report no shrinkage the second time');
+      if (await s.removeMarkings('x:T', 'nope', ['A'])) throw new Error('removeMarkings on a missing row must report false');
+      const g = await s.getEntity('x:T', 'm4');
+      if (g?.fields.f !== 7 || (g.markings ?? []).slice().sort().join() !== 'A,C') throw new Error(`fields=${JSON.stringify(g?.fields)} markings=${JSON.stringify(g?.markings)}`);
       return 'ok';
     });
     await t('markingsOf: known ids with their markings, unknown ids omitted', async () => {
@@ -133,6 +143,35 @@ const SUITES: Partial<Record<RoleId, (a: Adapter, t: T) => Promise<void>>> = {
       if (await eff('D') !== 'M,N' || await eff('A') !== 'M') throw new Error(`after N at B: D='${await eff('D')}' A='${await eff('A')}'`);
       if (await eff('unrelated') !== '') throw new Error('unrelated ref must have no markings');
       if ((await l.downstreamOf('A')).some((e) => e.kind === 'marking')) throw new Error('marking records must not appear as edges');
+      return 'ok';
+    });
+    await t('records: closure, request and approval records are not data-flow edges', async () => {
+      if ((await l.downstreamOf('A', 64)).some((e) => !isFlowEdge(e))) throw new Error('a record kind was returned as an edge');
+      if ((await l.upstreamOf('D', 64)).some((e) => !isFlowEdge(e))) throw new Error('a record kind was returned upstream');
+      return 'ok';
+    });
+    await t('effectiveMarkings: an approved unmark blocks one marking on one edge only', async () => {
+      const eff = async (ref: string) => (await l.effectiveMarkings(ref)).slice().sort().join();
+      // X carries M and N into Y; Z carries M into Y by a second path; Y feeds W
+      await l.applyMarking('X', ['M', 'N']); await l.applyMarking('Z', ['M']);
+      await l.record({ upstream: 'X', downstream: 'Y', kind: 'transform' });
+      await l.record({ upstream: 'Y', downstream: 'W', kind: 'transform' });
+      const declass = { id: 'd1', by: 'alice', reason: 'test', ts: '2026-11-15T00:00:00Z' };
+      await l.record({ upstream: 'X', downstream: 'Y', kind: 'unmark-request', markings: ['M'], declass });
+      if (await eff('W') !== 'M,N') throw new Error(`a request alone must change nothing, W='${await eff('W')}'`);
+      if ((await l.releasedMarkings('W')).length) throw new Error('nothing is released before approval');
+      await l.record({ upstream: 'X', downstream: 'Y', kind: 'unmark', markings: ['M'], declass: { ...declass, approvedBy: 'bob' } });
+      if (await eff('Y') !== 'N' || await eff('W') !== 'N') throw new Error(`after approval Y='${await eff('Y')}' W='${await eff('W')}', want N`);
+      if ((await l.releasedMarkings('W')).join() !== 'M') throw new Error(`released at W: ${(await l.releasedMarkings('W')).join()}`);
+      if ((await l.releasedMarkings('X')).length) throw new Error('nothing is released at the upstream ref itself');
+      await l.record({ upstream: 'Z', downstream: 'Y', kind: 'transform' });
+      if (await eff('W') !== 'M,N') throw new Error(`M arriving by a second path must still reach W, got '${await eff('W')}'`);
+      await l.applyMarking('Q', ['M']); await l.record({ upstream: 'Q', downstream: 'Q2', kind: 'transform' });
+      await l.record({ upstream: 'Q', downstream: 'Q2', kind: 'unmark', markings: ['M'], declass: { ...declass, id: 'd2', approvedBy: 'bob' } });
+      await l.applyMarking('Q2', ['M']);
+      if (await eff('Q2') !== 'M') throw new Error('a marking applied directly at the ref must not be blocked');
+      const recs = await l.declassifications('d1');
+      if (recs.length !== 2 || !recs.some((r) => r.kind === 'unmark-request') || !recs.some((r) => r.kind === 'unmark')) throw new Error(`declassifications('d1') returned ${recs.length}`);
       return 'ok';
     });
   },

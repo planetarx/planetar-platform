@@ -104,6 +104,10 @@ export interface CanonicalStore extends Adapter {
    *  is missing or already carried them. An engine's upsertEntity must likewise never remove a
    *  marking the stored row already has. */
   addMarkings(type: TypeName, id: EntityId, markings: MarkingId[]): Promise<boolean>;
+  /** Remove markings from a stored entity WITHOUT touching its fields, atomically in the engine.
+   *  True when the set shrank. Only governed re-derivation under an approved declassification
+   *  calls this (spine/system.ts); the system handle refuses it from every other caller. */
+  removeMarkings(type: TypeName, id: EntityId, markings: MarkingId[]): Promise<boolean>;
 
   transaction<T>(fn: (tx: Tx) => Promise<T>): Promise<T>;
 }
@@ -333,10 +337,24 @@ export interface AuditLog extends Adapter {
 export interface LineageEdge {
   upstream: string;     // source / dataset / observation / field ref
   downstream: string;   // derived dataset / object / field ref
-  /** 'marking' is a record that `markings` were applied AT `upstream` (upstream === downstream);
-   *  it is never returned by upstreamOf/downstreamOf. */
-  kind: 'source-observation' | 'observation-entity' | 'transform' | 'field-derivation' | 'marking';
+  /** Data-flow kinds: 'source-observation' | 'observation-entity' | 'transform' | 'field-derivation'.
+   *  Records, never returned by upstreamOf/downstreamOf:
+   *   'marking'          `markings` were applied AT `upstream` (upstream === downstream)
+   *   'marking-closure'  audit of the refs one propagateMarking call reached
+   *   'unmark-request'   a request that `markings` stop flowing along upstream → downstream
+   *   'unmark'           its approval; only this record changes what is inherited */
+  kind: 'source-observation' | 'observation-entity' | 'transform' | 'field-derivation' | 'marking'
+    | 'marking-closure' | 'unmark-request' | 'unmark';
   markings?: MarkingId[];
+  /** on 'unmark-request' and 'unmark' records (spine/declassify.ts) */
+  declass?: DeclassRecord;
+}
+
+export interface DeclassRecord { id: string; by: string; reason: string; ts: string; approvedBy?: string; }
+
+/** True for edges that carry data (and so markings) from upstream to downstream. */
+export function isFlowEdge(e: LineageEdge): boolean {
+  return e.kind !== 'marking' && e.kind !== 'marking-closure' && e.kind !== 'unmark-request' && e.kind !== 'unmark';
 }
 
 export interface Lineage extends Adapter {
@@ -347,8 +365,13 @@ export interface Lineage extends Adapter {
   propagateMarking(ref: string, markings: MarkingId[]): Promise<string[]>;
   /** Persist that `markings` apply at `ref`, so refs derived from it later inherit them. */
   applyMarking(ref: string, markings: MarkingId[]): Promise<void>;
-  /** Markings applied at `ref` or at any ref upstream of it. */
+  /** Markings that reach `ref`: applied at `ref`, or at a ref upstream of it along a path with no
+   *  edge approved as blocked for that marking (an 'unmark' record). */
   effectiveMarkings(ref: string): Promise<MarkingId[]>;
+  /** Markings approved as blocked on any edge into `ref` or into one of its ancestors. */
+  releasedMarkings(ref: string): Promise<MarkingId[]>;
+  /** The 'unmark-request' and 'unmark' records, optionally only those for one request id. */
+  declassifications(id?: string): Promise<LineageEdge[]>;
 }
 
 // ---------------------------------------------------------------------------
