@@ -109,7 +109,7 @@ Every governance feature decomposes (honestly) into `{R1, R10}` plus a specialty
 
 | Feature | What it does (1 line) | Owning plane(s) | Required roles (bold) + enhancing (italic) | Spine vs OSS component | Status + backing path |
 |---|---|---|---|---|---|
-| Manifest compiler (capability→role→engine) | Compile a client manifest into a wired, contract-checked deployment | P0 | **R10** | **spine** (binder + contract checker, `12 §4`) | designed — `binder.bind()` / `assertSatisfies` specified in `12 §4`; compiler not implemented |
+| Manifest compiler (capability→role→engine) | Compile a client manifest into a wired, contract-checked deployment | P0 | **R10** | **spine** (binder + contract checker, `12 §4`) | built — `spine/compiler.ts` (2026-10-06): resolves capabilities to roles, binds and contract-checks each adapter, emits a Mermaid topology; `npm run boot` exercises it, including the guardrail that refuses an engine failing a role's contract (re-verified 2026-11-15) |
 | Contract validation (engine ⊨ role) | Reject an engine whose capabilities don't satisfy a role's contract | P0 | **R10** | **spine** (`assertSatisfies(ROLE_CONTRACT, capabilities)`) | designed — rule specified (`12 §1`, `13 §2`) |
 | Fleet / deploy delivery (Apollo-class) | Orchestrated rollout of versioned bundles across environments | P0 | **R10**, **R14** | OSS: **Kubernetes** / **Nomad** / pm2; **Temporal** for orchestration | designed — **explicit GAP** ("Apollo-class deploy" deferred per inventory) |
 | Health / liveness + contract self-check | Per-adapter health probe round-trips a write | P0,P1 | (all roles) | **spine** (`Adapter.health()`, `12 §1`) | **built** (contract) — `health(): Promise<HealthStatus>` mandated on every adapter |
@@ -123,9 +123,9 @@ Counts are over the **51** governance / cross-cutting features in this slice (49
 
 | Status | Count | What it means here |
 |---|---|---|
-| **built** | 9 | A named repo demonstrably does it (per-field provenance, discrepancy provenance, audit-as-event, immutable WAL audit, versioned types, atomic transactions, Ontology Manager type defs, metadata-driven schema). Backing: `planetar-ontology`, `planetar-registry`, `planetar-broker`, `doibio`. |
+| **built** | 10 | A named repo demonstrably does it (manifest compiler, per-field provenance, discrepancy provenance, audit-as-event, immutable WAL audit, versioned types, atomic transactions, Ontology Manager type defs, metadata-driven schema). Backing: `planetar-ontology`, `planetar-registry`, `planetar-broker`, `doibio`. |
 | **partial** | 19 | Spine primitive exists but the governance breadth is incomplete (lineage edges without Marquez DAG, write-audit without read-audit, coarse single-`role` RBAC, branching on git-registry without COW data, encryption-in-transit via CRC32 only, etc.). |
-| **designed** | 21 | Specified in the spine docs (OPA/Keycloak adapters, row sharing, retention, manifest compiler) but not implemented. |
+| **designed** | 20 | Specified in the spine docs (OPA/Keycloak adapters, row sharing, retention) but not implemented. |
 | **planned** | 2 | Not built: classification-based access controls (CBAC) and governed marking removal (declassification), both added 2026-11-14 from the planetar-palantir research. |
 
 Spine-owned: marking model, propagation rules, per-field provenance, audit-as-event, kinetic gate, registry/codegen, manifest compiler. OSS breadth named and actionable: **Marquez/OpenLineage** (R12), **Keycloak** + **OPA** (R13), **ClickHouse** / **Kafka** (R11 sinks), **minio** (R6 at-rest + object tags), **Vault** (secrets), **Temporal** (governed long-running review/rollout), **opensearch** (audit/restricted-view doc security).
@@ -141,6 +141,6 @@ Spine-owned: marking model, propagation rules, per-field provenance, audit-as-ev
 - **Read auditing is built in the platform core (2026-10-06)** (one marked record per governed call, `spine/governed.ts`); the live service audits writes only.
 - **External identity (Keycloak/OPA/SSO/SCIM/MFA) is entirely designed.** doibio's homegrown `auth.ts` (users + sessions) is the only running identity; federated SSO and externalized policy decisions have no adapter yet. Multi-tenancy hardening is an open GAP.
 - **Lineage has edges but no engine.** Source→observation edges are recorded in the ingest lifecycle, but there is no Marquez adapter, no full DAG, and no impact-analysis traversal API. Right-to-be-forgotten and retention cascades depend on this.
-- **Manifest compiler is spec-only.** The contract-checking binder (`12 §4`) is fully specified but not implemented — so contract validation, topology emission, and per-client composition are designed rather than running.
+- **Manifest compiler is built in the platform core (2026-10-06)** (`spine/compiler.ts`, exercised by `npm run boot`, re-verified 2026-11-15). Still open: the manifest is not yet a registered `planetar:ClientManifest` type, and there is no fleet-level delivery of compiled manifests (see the Apollo rows).
 - **Apollo-class fleet delivery is deferred** (per BUILT INVENTORY); deploy is pm2 today, with Kubernetes/Nomad/Temporal named for the future.
 - **Encryption is mostly designed.** Only frame-level integrity (CRC32 on the broker WAL) is built; at-rest encryption, TLS-in-transit, and Vault-backed secrets are designed.

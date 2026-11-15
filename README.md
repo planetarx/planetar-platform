@@ -47,7 +47,7 @@ Decision (locked): **custom spine + OSS breadth.** The spine never depends on a 
 
 ## Parity at a glance
 
-609 Palantir + Salesforce features cataloged → **109 built (~18%) · 15 doibio-only donor (~2%) · 189 partial (~31%) · 230 designed (~38%) · 66 planned (~11%)**. Built or partial covers 49% overall, 47% for Salesforce. Statuses describe planetar's side, not mechanism equivalence. Full scorecard + the ten cross-cutting gaps: [`20-PARITY-MATRIX/README.md`](./20-PARITY-MATRIX/README.md). Build sequence: [`90-ROADMAP.md`](./90-ROADMAP.md).
+609 Palantir + Salesforce features cataloged → **110 built (~18%) · 15 doibio-only donor (~2%) · 189 partial (~31%) · 229 designed (~38%) · 66 planned (~11%)**. Built or partial covers 49% overall, 47% for Salesforce. Statuses describe planetar's side, not mechanism equivalence. Full scorecard + the ten cross-cutting gaps: [`20-PARITY-MATRIX/README.md`](./20-PARITY-MATRIX/README.md). Build sequence: [`90-ROADMAP.md`](./90-ROADMAP.md).
 
 ---
 
