@@ -61,6 +61,17 @@ export class SystemPlatform {
     if (edge.kind !== 'unmark-request' && edge.kind !== 'unmark') throw new GovernanceError(`not a declassification record: ${edge.kind}`);
     const lineage = this.#bound['lineage'] as Lineage | undefined;
     if (!lineage) throw new GovernanceError('role lineage is not bound in this client');
+    const d = edge.declass;
+    if (!d?.id || !d.by) throw new GovernanceError('a declassification record needs an id and a requester');
+    const prior = await lineage.declassifications(d.id);
+    if (edge.kind === 'unmark-request' && prior.length) throw new GovernanceError(`declassification ${d.id} already exists`);
+    if (edge.kind === 'unmark') {
+      // defence in depth: an approval must match a stored, unapproved request by someone else
+      const req = prior.find((r) => r.kind === 'unmark-request');
+      const same = req && req.upstream === edge.upstream && req.downstream === edge.downstream && req.declass?.by === d.by
+        && (req.markings ?? []).slice().sort().join() === (edge.markings ?? []).slice().sort().join();
+      if (!same || prior.some((r) => r.kind === 'unmark') || !d.approvedBy || d.approvedBy === d.by) throw new GovernanceError('an approval must match an open request made by a different principal');
+    }
     await lineage.record(edge);
   }
 
@@ -118,15 +129,16 @@ export class SystemPlatform {
     await store.upsertEntity(markings.length ? { ...e, markings } : e, tx);   // unions with the stored row: fail closed
     if (dropped.length) {
       await store.removeMarkings(e.type, e.id, dropped);
-      await this.#restamp(e.type, e.id, markings);
+      await this.#restamp(e.type, e.id, (await store.markingsOf([e.id]))[e.id] ?? markings);   // re-read: a concurrent stamp must survive
       const audit = this.#bound['audit-log'] as AuditLog | undefined;
       if (audit) await audit.append({ ts: BigInt(Date.now()) * 1_000_000n, actor: this.component, action: 'admin', resource: ref, detail: { released: dropped, remaining: markings }, markings: union(dropped, markings) });
     }
     const fresh = markings.filter((m) => !(existing?.markings ?? []).includes(m));
     if (!fresh.length) return;
     if (!dropped.length) await this.#restamp(e.type, e.id, markings);
-    // markings set directly on this entity must reach what is, or will be, derived from it
-    const direct = fresh.filter((m) => !inherited.includes(m));
+    // markings the writer set on this entity are applied AT it, even when it would also inherit
+    // them: they must reach what is derived from it, and no upstream release may remove them
+    const direct = fresh.filter((m) => given.includes(m));
     if (lineage && direct.length) await this.applyMarking(ref, direct);
   }
 

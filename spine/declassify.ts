@@ -32,8 +32,12 @@ export async function requestDeclassification(platform: BoundPlatform, principal
   if (!markings.length) throw new GovernanceError('name at least one marking to release');
   if (!req.reason?.trim()) throw new GovernanceError('a declassification request needs a reason');
   if (!cleared(principal, markings)) throw new GovernanceError('a principal may only request release of markings it holds');
-  const lineage = sys.role('lineage');
-  if (!(await lineage.upstreamOf(req.downstream, 1)).some((e) => e.upstream === req.upstream)) throw new GovernanceError(`no lineage edge ${req.upstream} → ${req.downstream}`);
+  // the edge must exist AND be visible to the requester; both failures read the same, so a
+  // request is no oracle for lineage the requester cannot see
+  const visible = (await platform.as(principal).role('lineage').upstreamOf(req.downstream, 1)).some((e) => e.upstream === req.upstream);
+  if (!visible) throw new GovernanceError('no visible lineage edge between those refs');
+  const carried = await sys.role('lineage').effectiveMarkings(req.upstream);
+  if (!markings.every((m) => carried.includes(m))) throw new GovernanceError('the edge does not carry every marking named');
   const declass: DeclassRecord = { id: randomUUID(), by: principal.id, reason: req.reason, ts: new Date().toISOString() };
   await sys.recordDeclassification({ upstream: req.upstream, downstream: req.downstream, kind: 'unmark-request', markings, declass });
   if (sys.has('audit-log')) await sys.role('audit-log').append({
@@ -64,13 +68,20 @@ export async function approveDeclassification(platform: BoundPlatform, approver:
   });
 }
 
-/** Open requests whose markings `principal` holds (a request names markings, so it is itself marked). */
+/** Open requests `principal` may see: it must hold the released markings AND every marking at
+ *  either end of the edge, the same rule the audit records about the request carry. */
 export async function pendingDeclassifications(platform: BoundPlatform, principal: Principal): Promise<PendingDeclassification[]> {
   const sys = platform.system('governance.declassify');
   if (!sys.has('lineage')) return [];
-  const recs = await sys.role('lineage').declassifications();
+  const lineage = sys.role('lineage');
+  const recs = await lineage.declassifications();
   const approved = new Set(recs.filter((r) => r.kind === 'unmark').map((r) => r.declass?.id));
-  return recs
-    .filter((r) => r.kind === 'unmark-request' && r.declass && !approved.has(r.declass.id) && cleared(principal, r.markings ?? []))
-    .map((r) => ({ id: r.declass!.id, by: r.declass!.by, ts: r.declass!.ts, reason: r.declass!.reason, upstream: r.upstream, downstream: r.downstream, markings: r.markings ?? [] }));
+  const out: PendingDeclassification[] = [];
+  for (const r of recs) {
+    if (r.kind !== 'unmark-request' || !r.declass || approved.has(r.declass.id)) continue;
+    const ends = union(await lineage.effectiveMarkings(r.upstream), await lineage.effectiveMarkings(r.downstream));
+    if (!cleared(principal, union(await recordMarkings(platform, r, r.markings ?? []), ends))) continue;
+    out.push({ id: r.declass.id, by: r.declass.by, ts: r.declass.ts, reason: r.declass.reason, upstream: r.upstream, downstream: r.downstream, markings: r.markings ?? [] });
+  }
+  return out;
 }

@@ -62,9 +62,24 @@ Each request and approval is an R11 `admin` record, marked with the markings it 
 - `#stampDown` stamps each downstream ref only with the markings effective there, so applying a marking upstream does not jump a blocked edge.
 - `#record` refuses `unmark-request`, `unmark` and `marking-closure` edges, because only `governance.declassify` writes them.
 
-### Known limitation (accepted)
+### Review hardening (2026-11-15)
 
-A writer that echoes back a row's old markings, including the released one, re-applies that marking directly at the ref. This fails closed (the row stays marked), and the governance suite documents it.
+An independent review found five issues. Four are fixed, each with a suite check:
+
+- A marking the writer set at the entity, which it would also have inherited, could be dropped by an upstream release. Every marking the writer gives is now recorded as applied at the ref.
+- `pendingDeclassifications` showed requests to principals who could not see an end of the edge. It now applies the same rule as the audit records: released markings plus every marking at either end.
+- `requestDeclassification` was an oracle for lineage edges. It now checks the edge through the requester's governed lineage port, refuses an invisible edge and a missing one with the same message, and requires the named markings to be carried at the upstream ref.
+- `recordDeclassification` trusted its caller's component name. It now also requires an approval to match a stored, unapproved request on the same edge and markings, made by someone other than the approver.
+
+The re-derivation drop also re-reads the stored markings before re-stamping projections.
+
+### Known limitations (accepted)
+
+- A writer that echoes back a row's old markings, including the released one, re-applies that marking directly at the ref. This fails closed (the row stays marked).
+- `platform.system()` handles are a guard against mistakes, not a security boundary. In-process code can reach an adapter's raw methods through `Object.getPrototypeOf` of a wrapped port, or by importing the adapter. That was true before this change for every port. A hardened boundary needs out-of-process enforcement (OPA, an engine-side PEP).
+- A marking added through the raw `addMarkings` and never applied at a lineage ref can be dropped on re-derivation if an upstream edge releases it. The spine stamps through `applyMarking`, so this only affects callers that bypass it.
+- Lineage files written before this change record propagation closures as `field-derivation` edges, which count as data flow and can carry a marking around a block. The proof scripts rebuild `./.data` on every run; any longer-lived store would need a one-time rewrite of those records to `marking-closure`.
+- Walks stop at 64 hops.
 
 ## Verification
 

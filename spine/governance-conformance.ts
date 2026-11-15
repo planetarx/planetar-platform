@@ -573,6 +573,7 @@ export const DECLASS = {
   BOB: { id: 'gov-bob', roles: ['operator', `declassify:${SUITE.RESTRICTED}`], clearances: [SUITE.PUBLIC, SUITE.RESTRICTED] } as Principal,
   CAROL: { id: 'gov-carol', roles: ['operator'], clearances: [SUITE.PUBLIC, SUITE.RESTRICTED] } as Principal,
   DAVE: { id: 'gov-dave', roles: ['operator', `declassify:${SUITE.RESTRICTED}`], clearances: [SUITE.PUBLIC] } as Principal,
+  EVE: { id: 'gov-eve', roles: ['operator'], clearances: [SUITE.PUBLIC, SUITE.RESTRICTED, 'COMPARTMENT-Y'] } as Principal,
 };
 
 async function declassificationChecks(
@@ -583,11 +584,11 @@ async function declassificationChecks(
   lowFinds: (text: string) => Promise<number>,
 ): Promise<void> {
   if (!platform.has('policy-identity')) return;
-  const { ALICE, BOB, CAROL, DAVE } = DECLASS;
+  const { ALICE, BOB, CAROL, DAVE, EVE } = DECLASS;
   const sys = platform.system('governance-suite');
   const lineage = sys.role('lineage');
   const SRC = 'src:gov-declass', SRC2 = 'src:gov-declass-2', OBS = 'gov-obs-d1';
-  const X = 'gov-11-released', X2 = 'gov-12-twopath', X3 = 'gov-13-direct';
+  const X = 'gov-11-released', X2 = 'gov-12-twopath', X3 = 'gov-13-direct', X4 = 'gov-14-direct-late', X5 = 'gov-15-compartment';
   const ref = (id: string) => entityRef(SUITE.type, id);
 
   await propagate(platform, SRC, [SUITE.RESTRICTED], 'gov-admin-d');
@@ -598,6 +599,13 @@ async function declassificationChecks(
   await lineage.record({ upstream: SRC, downstream: OBS, kind: 'source-observation' });
   for (const id of [X, X2, X3]) await lineage.record({ upstream: OBS, downstream: ref(id), kind: 'observation-entity' });
   await lineage.record({ upstream: SRC2, downstream: ref(X2), kind: 'observation-entity' });   // a second path into X2
+  // X4 is classified on purpose by its writer, with a marking it would also have inherited
+  await lineage.record({ upstream: OBS, downstream: ref(X4), kind: 'observation-entity' });
+  await seed(vessel(X4, 'MV Directlate', [SUITE.PUBLIC, SUITE.RESTRICTED]));
+  // X5 carries a compartment CAROL lacks
+  await seed(vessel(X5, 'MV Compartmented', [SUITE.PUBLIC, 'COMPARTMENT-Y']));
+  await lineage.record({ upstream: OBS, downstream: ref(X5), kind: 'observation-entity' });
+  await lineage.record({ upstream: SRC2, downstream: ref(X5), kind: 'observation-entity' });
   let id = '';
 
   await t('declassify: a request is refused for a missing edge, without clearance, or without a reason', async () => {
@@ -650,11 +658,34 @@ async function declassificationChecks(
     if (await lowSees(X2)) throw new Error('X2 lost the marking its second source carries');
     await seed(vessel(X3, 'MV Direct', [SUITE.PUBLIC]));
     if (await lowSees(X3)) throw new Error('X3 lost a marking applied directly to it');
+    await seed(vessel(X4, 'MV Directlate', [SUITE.PUBLIC]));
+    if (await lowSees(X4)) throw new Error('X4 lost a marking its writer set, because it was also inherited');
     return 'ok';
   });
   await t('declassify: a later propagation from the source does not jump the blocked edge', async () => {
     await propagate(platform, SRC, [SUITE.RESTRICTED], 'gov-admin-d');
     if (!await lowSees(X)) throw new Error('re-propagating at the source re-marked X past the approved block');
+    return 'ok';
+  });
+  await t('declassify: a request is no oracle for edges the requester cannot see, and names only carried markings', async () => {
+    const msg = async (fn: () => Promise<unknown>) => { try { await fn(); return 'accepted'; } catch (e) { if (e instanceof GovernanceError) return e.message; throw e; } };
+    const hidden = await msg(() => requestDeclassification(platform, CAROL, { upstream: OBS, downstream: ref(X5), markings: [SUITE.RESTRICTED], reason: 'probe' }));
+    const missing = await msg(() => requestDeclassification(platform, CAROL, { upstream: OBS, downstream: ref('gov-nowhere'), markings: [SUITE.RESTRICTED], reason: 'probe' }));
+    if (hidden === 'accepted' || hidden !== missing) throw new Error(`an invisible edge answers '${hidden}', a missing one '${missing}'`);
+    if (!await refused(() => requestDeclassification(platform, ALICE, { upstream: SRC, downstream: OBS, markings: [SUITE.PUBLIC], reason: 'not carried' }))) throw new Error('a request named a marking the edge does not carry');
+    return 'ok';
+  });
+  await t('declassify: a pending request is hidden from a principal who cannot see an end of its edge', async () => {
+    const rid = await requestDeclassification(platform, EVE, { upstream: SRC2, downstream: ref(X5), markings: [SUITE.RESTRICTED], reason: 'compartment review' });
+    if ((await pendingDeclassifications(platform, CAROL)).some((r) => r.id === rid)) throw new Error('CAROL sees a request naming an entity in a compartment she lacks');
+    if ((await pendingDeclassifications(platform, BOB)).some((r) => r.id === rid)) throw new Error('BOB sees it without the compartment');
+    if (!(await pendingDeclassifications(platform, EVE)).some((r) => r.id === rid)) throw new Error('EVE cannot see her own request');
+    return 'ok';
+  });
+  await t('declassify: an approval record must match a real, unapproved request by someone else', async () => {
+    const forge = platform.system('governance.declassify');
+    if (!await refused(() => forge.recordDeclassification({ upstream: SRC2, downstream: ref(X2), kind: 'unmark', markings: [SUITE.RESTRICTED], declass: { id: 'forged', by: 'x', reason: 'x', ts: '', approvedBy: 'y' } }))) throw new Error('an unmark with no request was recorded');
+    if (await lowSees(X2)) throw new Error('X2 exposed');
     return 'ok';
   });
   await t('declassify: no raw-port route around the approval', async () => {
