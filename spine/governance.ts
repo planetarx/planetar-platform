@@ -72,7 +72,7 @@ export type Rule = 'governed' | 'open' | 'system';
 type PortMethod<R extends RoleId> = Exclude<keyof PortByRole[R], keyof Adapter> & string;
 
 export const GOVERNANCE_RULES = {
-  'canonical-store': { getEntity: 'governed', listEntities: 'governed', getLinks: 'governed', putObservation: 'system', upsertEntity: 'system', putLink: 'system', transaction: 'system', markingsOf: 'system', addMarkings: 'system' },
+  'canonical-store': { getEntity: 'governed', listEntities: 'governed', getLinks: 'governed', putObservation: 'system', upsertEntity: 'system', putLink: 'system', transaction: 'system', markingsOf: 'system', addMarkings: 'system', removeMarkings: 'system' },
   'hot-cache': { get: 'governed', set: 'governed', del: 'governed', incr: 'governed', publish: 'governed', subscribe: 'governed' },
   'stream': { subscribe: 'governed', publish: 'system', ack: 'system' },
   'object-index': { search: 'governed', aggregate: 'governed', index: 'system', remove: 'system', searchCandidates: 'system', setMarkings: 'system' },
@@ -83,7 +83,7 @@ export const GOVERNANCE_RULES = {
   'analytics-olap': { query: 'governed', registerExternal: 'system' },
   'registry': { loadAll: 'open', get: 'open', versions: 'open', put: 'system' },
   'audit-log': { scan: 'governed', export: 'governed', append: 'system' },
-  'lineage': { upstreamOf: 'governed', downstreamOf: 'governed', record: 'system', propagateMarking: 'system', applyMarking: 'system', effectiveMarkings: 'system' },
+  'lineage': { upstreamOf: 'governed', downstreamOf: 'governed', record: 'system', propagateMarking: 'system', applyMarking: 'system', effectiveMarkings: 'system', releasedMarkings: 'system', declassifications: 'system' },
   'policy-identity': { authenticate: 'open', authorize: 'open', members: 'open' },
   'work-queue': { claim: 'system', complete: 'system', fail: 'system', enqueue: 'system' },   // jobs carry no markings yet
 } satisfies { [R in RoleId]: Record<PortMethod<R>, Rule> };

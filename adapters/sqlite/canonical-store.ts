@@ -49,6 +49,15 @@ export class SqliteCanonicalStore implements CanonicalStore {
       .run(added, type, id, added);
     return Number(r.changes) > 0;
   }
+  /** one statement: drop the markings from the stored body, fields untouched; true iff it shrank. */
+  async removeMarkings(type: TypeName, id: EntityId, markings: MarkingId[]): Promise<boolean> {
+    const gone = JSON.stringify(markings);
+    const r = this.db.prepare(`UPDATE entity SET body = json_set(body, '$.markings', (SELECT json_group_array(value) FROM (
+        SELECT value FROM json_each(COALESCE(json_extract(body,'$.markings'),'[]')) WHERE value NOT IN (SELECT value FROM json_each(?)))))
+      WHERE type=? AND id=? AND EXISTS (SELECT 1 FROM json_each(COALESCE(json_extract(body,'$.markings'),'[]')) o WHERE o.value IN (SELECT value FROM json_each(?)))`)
+      .run(gone, type, id, gone);
+    return Number(r.changes) > 0;
+  }
   async putLink(l: Link): Promise<void> {
     this.db.prepare('INSERT OR REPLACE INTO link(id,link_type,from_id,to_id,body) VALUES(?,?,?,?,?)').run(l.id, l.linkType, l.from, l.to, jstr(l));
   }

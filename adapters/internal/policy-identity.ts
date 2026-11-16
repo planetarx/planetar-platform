@@ -15,10 +15,16 @@ export class InternalPolicyIdentity implements PolicyIdentity {
     if (!token) return null;
     return { id: token, roles: ['operator'], clearances: this.clearances };
   }
-  async authorize(principal: Principal, _action: string, resource: { type: TypeName; id?: EntityId; markings?: MarkingId[] }): Promise<PolicyDecision> {
+  async authorize(principal: Principal, action: string, resource: { type: TypeName; id?: EntityId; markings?: MarkingId[] }): Promise<PolicyDecision> {
     const need = resource.markings ?? [];
     const ok = need.every((m) => principal.clearances.includes(m));
-    return ok ? { allow: true } : { allow: false, reason: `missing clearance for ${need.filter((m) => !principal.clearances.includes(m)).join(',')}` };
+    if (!ok) return { allow: false, reason: `missing clearance for ${need.filter((m) => !principal.clearances.includes(m)).join(',')}` };
+    // releasing a marking is a separate, per-marking permission (spine/declassify.ts): default-deny
+    if (action === 'declassify') {
+      const lacking = need.filter((m) => !principal.roles.includes(`declassify:${m}`));
+      if (!need.length || lacking.length) return { allow: false, reason: `missing role declassify:${lacking.join(',') || '?'}` };
+    }
+    return { allow: true };
   }
   async members(_group: string): Promise<string[]> { return []; }
   async health(): Promise<HealthStatus> { return { ok: true, p99Ms: 5 }; }

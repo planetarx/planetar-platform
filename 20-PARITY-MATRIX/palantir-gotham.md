@@ -144,7 +144,7 @@ Headline: the **Gotham investigative loop (ingest → resolve → link-graph →
 ## Notable gaps
 
 - **Targeting and disconnected operation** are unbuilt: no Target Workbench analogue (boards plus `detectionReasoning` provenance on machine nominations) and no Nexus Peering-style multi-site reconciliation. Reversible resolution (unresolve) and per-property portion markings are also missing.
-- **Propagating markings security (P1)** is built in the platform core (2026-10-06) but not in the live service, and there is no governed declassification path (see [`40-ADAPTERS/governance.md` §4.4](../40-ADAPTERS/governance.md)). Purpose-based access (OPA) and per-record sharing remain designed — and doibio has **no FLS/row-level sharing**, so this cannot be borrowed.
+- **Propagating markings security (P1)** is built in the platform core (2026-10-06) but not in the live service; governed declassification is built in the core since 2026-11-15 (see [`40-ADAPTERS/governance.md` §4.4](../40-ADAPTERS/governance.md)). Purpose-based access (OPA) and per-record sharing remain designed — and doibio has **no FLS/row-level sharing**, so this cannot be borrowed.
 - **Dedicated graph engine (R5)** not yet bound: link traversal runs over the ontology's canonical store today; shortest-path and subgraph pattern matching (ring/shell-company motifs) need a real `falkordb`/`neo4j` binding behind the existing `GraphStore` port.
 - **Geotemporal engine (R8)** not yet bound: `planetar-ui` has the maplibre map, but Geotime playback (Timeline tab) is a stub and postgis/timescaledb geo-query bindings are designed, not wired — geofence alerts depend on this.
 - **FMV / video exploitation (R6+R8)** is planned-only; the EO detector is the closest donor but there is no per-frame tracker.

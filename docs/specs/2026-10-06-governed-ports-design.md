@@ -21,7 +21,7 @@ see `planetar-grants/planetar-niwc-mda/FIT.md` and
 - Markings on the `zmesg` wire.
 - Keycloak and OPA behind the policy ports.
 - The production-engine samples under `40-ADAPTERS/` (the contract doc is updated; sample code is not).
-- Removing a marking (declassification).
+- Removing a marking (declassification). Done later: `2026-11-15-governed-declassification-design.md`.
 - Handoff suspects 3–6 (approval durability, `rmSync`, `stop()`, broker sockets): real, not governance.
 
 ## 2. Evidence: what leaks today

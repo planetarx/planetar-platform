@@ -12,10 +12,10 @@ Every Palantir + Salesforce feature, decomposed to planes ([`00`](../00-ARCHITEC
 |---|---|--:|--:|--:|--:|--:|--:|
 | Foundry — Data/Pipelines/Modeling | [palantir-foundry-data](./palantir-foundry-data.md) | 40 | 14 | 1 | 10 | 12 | 3 |
 | Foundry — Ontology/Analytics/Apps | [palantir-foundry-semantic](./palantir-foundry-semantic.md) | 67 | 12 | 3 | 21 | 24 | 7 |
-| Foundry — Security/Governance/Cross | [palantir-foundry-governance](./palantir-foundry-governance.md) | 51 | 10 | 0 | 19 | 20 | 2 |
+| Foundry — Security/Governance/Cross | [palantir-foundry-governance](./palantir-foundry-governance.md) | 51 | 11 | 0 | 19 | 20 | 1 |
 | Gotham | [palantir-gotham](./palantir-gotham.md) | 63 | 14 | 1 | 19 | 18 | 11 |
 | AIP + Apollo | [palantir-aip-apollo](./palantir-aip-apollo.md) | 40 | 2 | 0 | 13 | 9 | 16 |
-| **Palantir subtotal** |  | **261** | **52** | **5** | **82** | **83** | **39** |
+| **Palantir subtotal** |  | **261** | **53** | **5** | **82** | **83** | **38** |
 | SF Platform — Data + UI | [salesforce-platform-data-ui](./salesforce-platform-data-ui.md) | 58 | 16 | 1 | 17 | 24 | 0 |
 | SF Platform — Automation/Security/DevOps | [salesforce-platform-automation-security-devops](./salesforce-platform-automation-security-devops.md) | 47 | 6 | 0 | 13 | 24 | 4 |
 | SF Sales + Service/Field | [salesforce-sales-service](./salesforce-sales-service.md) | 81 | 17 | 4 | 21 | 25 | 14 |
@@ -23,9 +23,9 @@ Every Palantir + Salesforce feature, decomposed to planes ([`00`](../00-ARCHITEC
 | SF Data Cloud + Analytics + AI | [salesforce-data-analytics-ai](./salesforce-data-analytics-ai.md) | 58 | 9 | 1 | 20 | 25 | 3 |
 | SF Integration/Collab/Trust/Experience | [salesforce-integration-collab-trust-experience](./salesforce-integration-collab-trust-experience.md) | 47 | 10 | 1 | 13 | 22 | 1 |
 | **Salesforce subtotal** |  | **348** | **58** | **10** | **107** | **146** | **27** |
-| **TOTAL** |  | **609** | **110** | **15** | **189** | **229** | **66** |
+| **TOTAL** |  | **609** | **111** | **15** | **189** | **229** | **65** |
 
-**Read:** ~18% built, ~2% donor, ~31% partial, ~38% designed, ~11% planned. Recounted row by row on 2026-11-06, by the first status word in each row's last cell (9 rows have split statuses); the earlier 555 total had drifted from the 584 rows in the slices. On 2026-11-14, 25 Palantir rows were added for omissions the planetar-palantir research named (CBAC, governed declassification, Target Workbench, Nexus Peering, AI FDE, Apollo recalls and others), each `planned (not built)`; that is the whole change from 584 to 609. On 2026-11-15 the manifest-compiler row moved from designed to built after `spine/compiler.ts` and `npm run boot` were checked. Row statuses are otherwise unchanged: governance rows date from 2026-10-06 and every other row from 2026-06-09. **Built or partial covers 49% of all features (299 of 609): 51% of Palantir and 47% of Salesforce.** Most features reduce to {objects, links, actions, identity-resolution, streaming, audit}, which exist in `planetar-ontology` / `planetar-broker`, with `doibio` as a pattern donor only. The work is breadth and governance, not a from-scratch core.
+**Read:** ~18% built, ~2% donor, ~31% partial, ~38% designed, ~11% planned. Recounted row by row on 2026-11-06, by the first status word in each row's last cell (9 rows have split statuses); the earlier 555 total had drifted from the 584 rows in the slices. On 2026-11-14, 25 Palantir rows were added for omissions the planetar-palantir research named (CBAC, governed declassification, Target Workbench, Nexus Peering, AI FDE, Apollo recalls and others), each `planned (not built)`; that is the whole change from 584 to 609. On 2026-11-15 the manifest-compiler row moved from designed to built after `spine/compiler.ts` and `npm run boot` were checked, and the governed-declassification row moved from planned to built when `spine/declassify.ts` landed. Row statuses are otherwise unchanged: governance rows date from 2026-10-06 and every other row from 2026-06-09. **Built or partial covers 49% of all features (300 of 609): 52% of Palantir and 47% of Salesforce.** Most features reduce to {objects, links, actions, identity-resolution, streaming, audit}, which exist in `planetar-ontology` / `planetar-broker`, with `doibio` as a pattern donor only. The work is breadth and governance, not a from-scratch core.
 
 ## What this matrix does and does not show
 
@@ -47,7 +47,7 @@ These recur across nearly every matrix. They — not the per-feature long tail �
 
 | # | Gap | Blocks (slices) | Unblocks |
 |---|---|---|---|
-| 1 | **Marking propagation + FLS/row-level sharing** (R12 propagation + R13 OPA PEP) — *core built 2026-10-06 in the zero-service tier; open: OPA/Keycloak, the live service, per-record sharing, governed declassification (no marking-removal path; see [`../40-ADAPTERS/governance.md` §4.4](../40-ADAPTERS/governance.md))* | all 11 | multi-tenancy, classified/compartmented, CRM sharing, purpose-based access. Propagation itself is a common mechanism (Snowflake tags, Atlas plus Ranger); what is hard is complete lineage and governed declassification, which planetar lacks |
+| 1 | **Marking propagation + FLS/row-level sharing** (R12 propagation + R13 OPA PEP) — *core built 2026-10-06 in the zero-service tier; governed declassification built 2026-11-15 ([`../40-ADAPTERS/governance.md` §4.4](../40-ADAPTERS/governance.md)); open: OPA/Keycloak, the live service, per-record sharing* | all 11 | multi-tenancy, classified/compartmented, CRM sharing, purpose-based access. Propagation itself is a common mechanism (Snowflake tags, Atlas plus Ranger); what is hard is complete lineage and governed declassification; planetar has the second in its core, not yet in the live service |
 | 2 | **Manifest compiler / binder** (12 §4) — *core built 2026-10-06 (`spine/compiler.ts`, run by `npm run boot`); open: manifest as a registered type, fleet delivery* | foundational | the entire per-client composition thesis; nothing composes without it |
 | 3 | **Declarative Flow/automation engine** (R14 + Temporal + action-graph compiler) | ~8 | Flow/Process/Approvals/Journeys/Automate/Workshop-logic |
 | 4 | **Analytics/OLAP + report builder** (R9 clickhouse/duckdb + Superset) | ~6 | Contour/Quiver/Reports/Dashboards/CRMA/Calculated-Insights/forecasting |
